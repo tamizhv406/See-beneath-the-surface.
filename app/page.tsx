@@ -9,6 +9,16 @@ const OceanMap = dynamic(
 );
 
 import { ProvenanceModal } from "@/components/provenance-modal";
+import {
+  getPrediction,
+  getForecast,
+  getHistorical,
+  getSubsurface,
+  getValidation,
+  getDataQuality,
+  getArgoProfiles,
+  getArgoSingleProfile,
+} from "@/lib/ocean-service";
 
 import {
   Activity,
@@ -357,69 +367,109 @@ export default function Page() {
     const lon = selected.lon ?? 74.2;
     setDataLoading(true);
 
-    // 1. Core Profile & Observations
-    fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: OceanData | null) => setOceanData(data))
-      .catch(() => setOceanData(null))
-      .finally(() => setDataLoading(false));
+    if (API_URL) {
+      // 1. Core Profile & Observations
+      fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: OceanData | null) => setOceanData(data || (getPrediction(lat, lon) as any)))
+        .catch(() => setOceanData(getPrediction(lat, lon) as any))
+        .finally(() => setDataLoading(false));
 
-    // 2. Tomorrow Forecast (T+1 & T+2)
-    fetch(`${API_URL}/api/forecast/2day?lat=${lat}&lon=${lon}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: ForecastResponse | null) => setForecastData(data))
-      .catch(() => setForecastData(null));
+      // 2. Tomorrow Forecast (T+1 & T+2)
+      fetch(`${API_URL}/api/forecast/2day?lat=${lat}&lon=${lon}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: ForecastResponse | null) => setForecastData(data || (getForecast(lat, lon) as any)))
+        .catch(() => setForecastData(getForecast(lat, lon) as any));
 
-    // 3. Historical Time Series
-    fetch(`${API_URL}/api/historical?lat=${lat}&lon=${lon}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: HistoricalResponse | null) => setHistoricalData(data))
-      .catch(() => setHistoricalData(null));
+      // 3. Historical Time Series
+      fetch(`${API_URL}/api/historical?lat=${lat}&lon=${lon}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: HistoricalResponse | null) => setHistoricalData(data || (getHistorical(lat, lon) as any)))
+        .catch(() => setHistoricalData(getHistorical(lat, lon) as any));
 
-    // 4. Subsurface Gradients & T-S Diagram
-    fetch(`${API_URL}/api/analysis/subsurface?lat=${lat}&lon=${lon}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data: SubsurfaceResponse | null) => setSubsurfaceData(data))
-      .catch(() => setSubsurfaceData(null));
+      // 4. Subsurface Gradients & T-S Diagram
+      fetch(`${API_URL}/api/analysis/subsurface?lat=${lat}&lon=${lon}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: SubsurfaceResponse | null) => setSubsurfaceData(data || (getSubsurface(lat, lon) as any)))
+        .catch(() => setSubsurfaceData(getSubsurface(lat, lon) as any));
+    } else {
+      setOceanData(getPrediction(lat, lon) as any);
+      setForecastData(getForecast(lat, lon) as any);
+      setHistoricalData(getHistorical(lat, lon) as any);
+      setSubsurfaceData(getSubsurface(lat, lon) as any);
+      setDataLoading(false);
+    }
   }, [selected]);
 
   // Load Real Validation Metrics & Real Data Quality Statistics
   useEffect(() => {
-    fetch(`${API_URL}/validation`)
-      .then((res) => res.json())
-      .then((data) => setValidationMetrics(data.metrics))
-      .catch(() => setValidationMetrics(null));
+    if (API_URL) {
+      fetch(`${API_URL}/validation`)
+        .then((res) => res.json())
+        .then((data) => setValidationMetrics(data?.metrics || (getValidation() as any)?.metrics))
+        .catch(() => setValidationMetrics((getValidation() as any)?.metrics));
 
-    fetch(`${API_URL}/api/data-quality`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.status === "success") setDataQualityData(data.datasets);
-      })
-      .catch(() => setDataQualityData(null));
+      fetch(`${API_URL}/api/data-quality`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.status === "success") setDataQualityData(data.datasets);
+          else setDataQualityData((getDataQuality() as any)?.datasets);
+        })
+        .catch(() => setDataQualityData((getDataQuality() as any)?.datasets));
+    } else {
+      setValidationMetrics((getValidation() as any)?.metrics);
+      setDataQualityData((getDataQuality() as any)?.datasets);
+    }
   }, []);
 
   // Load In-situ Argo Float list
   useEffect(() => {
-    const query = new URLSearchParams({ date_from: argoDateFrom, date_to: argoDateTo, parameter: argoParameter, limit: "2500" });
-    fetch(`${API_URL}/argo/profiles?${query}`)
-      .then((res) => res.json())
-      .then((data) => setArgoProfiles(data.profiles ?? []))
-      .catch(() => setArgoProfiles([]));
+    if (API_URL) {
+      const query = new URLSearchParams({ date_from: argoDateFrom, date_to: argoDateTo, parameter: argoParameter, limit: "2500" });
+      fetch(`${API_URL}/argo/profiles?${query}`)
+        .then((res) => res.json())
+        .then((data) => {
+          const profs = data?.profiles && data.profiles.length ? data.profiles : getArgoProfiles(argoDateFrom, argoDateTo, argoParameter);
+          setArgoProfiles(profs);
+        })
+        .catch(() => setArgoProfiles(getArgoProfiles(argoDateFrom, argoDateTo, argoParameter)));
+    } else {
+      setArgoProfiles(getArgoProfiles(argoDateFrom, argoDateTo, argoParameter));
+    }
   }, [argoDateFrom, argoDateTo, argoParameter]);
 
   // Load full in-situ Argo CTD profile when float marker clicked
   const handleArgoSelect = (profile: ArgoProfile) => {
-    fetch(`${API_URL}/argo/profile/${profile.platform}/${profile.cycle}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (!data.error) setArgoDetail(data);
-      })
-      .catch(() => setArgoDetail(null));
+    if (API_URL) {
+      fetch(`${API_URL}/argo/profile/${profile.platform}/${profile.cycle}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data && !data.error) setArgoDetail(data);
+          else setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any);
+        })
+        .catch(() => setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any));
+    } else {
+      setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any);
+    }
   };
 
   const exportArgo = () => {
-    const query = new URLSearchParams({ date_from: argoDateFrom, date_to: argoDateTo, parameter: argoParameter });
-    window.open(`${API_URL}/argo/export?${query}`, "_blank");
+    if (API_URL) {
+      const query = new URLSearchParams({ date_from: argoDateFrom, date_to: argoDateTo, parameter: argoParameter });
+      window.open(`${API_URL}/argo/export?${query}`, "_blank");
+    } else {
+      const profiles = getArgoProfiles(argoDateFrom, argoDateTo, argoParameter, 5000);
+      if (!profiles.length) return;
+      const keys = Object.keys(profiles[0]);
+      const csv = [keys.join(','), ...profiles.map((p: any) => keys.map(k => JSON.stringify(p[k] ?? '')).join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `argo_${argoDateFrom}_${argoDateTo}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   };
 
   const handleMapClick = (lat: number, lon: number) => {

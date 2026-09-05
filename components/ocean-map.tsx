@@ -6,6 +6,7 @@ import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from 'rea
 import 'leaflet/dist/leaflet.css'
 
 const Ocean3DScene = dynamic(() => import('./ocean-3d-scene').then(m => m.Ocean3DScene), { ssr: false })
+import { getPrediction } from '@/lib/ocean-service'
 
 type Location = { id: string; name: string; region: string; x: number; y: number; code: string; lat?: number; lon?: number }
 type Observation = { surface_temp: number | null; salinity: number | null; wind_speed: number | null }
@@ -89,27 +90,43 @@ export function OceanMap({
   }, [propMetric])
 
   useEffect(() => {
-    Promise.all(locations.map(async (location) => {
-      const [lat, lon] = coords[location.id] ?? [8.5, 74.2]
-      try {
-        const response = await fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
-        const data = await response.json()
-        return [location.id, data] as const
-      } catch {
-        return [location.id, null] as const
-      }
-    })).then((entries) => {
-      const valid = entries.filter((e): e is readonly [string, any] => e[1] !== null)
-      setObservations(Object.fromEntries(valid))
-    }).catch(() => undefined)
+    if (API_URL) {
+      Promise.all(locations.map(async (location) => {
+        const [lat, lon] = coords[location.id] ?? [8.5, 74.2]
+        try {
+          const response = await fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
+          const data = await response.json()
+          return [location.id, data || (getPrediction(lat, lon) as any)] as const
+        } catch {
+          return [location.id, getPrediction(lat, lon) as any] as const
+        }
+      })).then((entries) => {
+        const valid = entries.filter((e): e is readonly [string, any] => e[1] !== null)
+        setObservations(Object.fromEntries(valid))
+      }).catch(() => undefined)
+    } else {
+      const entries = locations.map((location) => {
+        const [lat, lon] = coords[location.id] ?? [8.5, 74.2]
+        return [location.id, getPrediction(lat, lon) as any] as const
+      })
+      setObservations(Object.fromEntries(entries))
+    }
   }, [locations])
 
   useEffect(() => {
     if (!selected.id.startsWith('clicked-') || selected.lat == null || selected.lon == null) return
-    fetch(`${API_URL}/predict?lat=${selected.lat}&lon=${selected.lon}`)
-      .then((response) => response.json())
-      .then((data: Observation) => setObservations((current) => ({ ...current, [selected.id]: data })))
-      .catch(() => undefined)
+    if (API_URL) {
+      fetch(`${API_URL}/predict?lat=${selected.lat}&lon=${selected.lon}`)
+        .then((response) => response.json())
+        .then((data: Observation) => setObservations((current) => ({ ...current, [selected.id]: data || (getPrediction(selected.lat!, selected.lon!) as any) })))
+        .catch(() => {
+          const fallback = getPrediction(selected.lat!, selected.lon!)
+          if (fallback) setObservations((current) => ({ ...current, [selected.id]: fallback as any }))
+        })
+    } else {
+      const fallback = getPrediction(selected.lat, selected.lon)
+      if (fallback) setObservations((current) => ({ ...current, [selected.id]: fallback as any }))
+    }
   }, [selected])
 
   const metricValues = [...locations, ...(selected.id.startsWith('clicked-') ? [selected] : [])].map((location) => {
