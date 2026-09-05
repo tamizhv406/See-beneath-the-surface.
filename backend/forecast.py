@@ -38,6 +38,7 @@ def get_forecast(lat: float, lon: float) -> dict:
 
     result = {
         "lat": lat, "lon": lon,
+        "classification": "PREDICTED · NOT AN OBSERVATION",
         "method": "persistence_plus_linear_trend",
         "horizon_days": [1, 2],
         "temperature": {},
@@ -45,8 +46,14 @@ def get_forecast(lat: float, lon: float) -> dict:
         "wind": {},
         "disclaimer": (
             "Forecast based on 7-day GLORYS time series (Jan 2024 only). "
-            "Persistence+linear trend extrapolation. Not suitable for operational forecasting."
+            "Persistence+linear trend extrapolation. Not suitable for operational forecasting. "
+            "Classified strictly as PREDICTED (not an observation)."
         ),
+        "provenance": {
+            "source": "GLORYS12V1 Daily Reanalysis Lags",
+            "type": "STATISTICAL FORECAST",
+            "classification": "PREDICTED",
+        }
     }
 
     try:

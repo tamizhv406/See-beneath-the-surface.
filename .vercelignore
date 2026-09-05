@@ -1,0 +1,16 @@
+# Vercel deployment ignore file
+# Ignore multi-gigabyte raw scientific files & datasets
+ocean_data/
+data set/
+org dataset/
+data/
+models/
+model_outputs/
+__pycache__/
+*.pyc
+*.nc
+*.parquet
+backend/
+export_serverless_data.py
+train_ocean_model.py
+tsconfig.tsbuildinfo
