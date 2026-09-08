@@ -456,7 +456,8 @@ export function Ocean3DScene({
     if (profile && profile.length > 0) {
       profile.forEach((pt) => {
         const [, , z] = toSceneCoords(lat, lon, pt.depth)
-        const val = metric === 'temperature' ? pt.temperature : (pt.salinity ?? 35)
+        const val = metric === 'temperature' ? pt.temperature : pt.salinity
+        if (val == null || !Number.isFinite(val)) return
         const color = metric === 'temperature' ? getTemperatureColor(val) : getSalinityColor(val)
 
         // Large, luminous depth beads with vibrant emission
@@ -479,7 +480,7 @@ export function Ocean3DScene({
           source: 'Copernicus GLORYS12V1 & OceanProfileNet AI',
           sourceKey: 'glorys',
           type: '🔵 MODEL / REANALYSIS',
-          date: '2024-01-07',
+          date: undefined,
         }
         group.add(bead)
       })

@@ -9,6 +9,7 @@ from pathlib import Path
 from functools import lru_cache
 
 import numpy as np
+import pandas as pd
 import torch
 import xarray as xr
 
@@ -16,7 +17,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from backend.config import (
     GLORYS_7DAY, MODELS_DIR, GLORYS_DEPTHS_M,
-    LAT_MIN, LAT_MAX, LON_MIN, LON_MAX,
+    WINDS_025, LAT_MIN, LAT_MAX, LON_MIN, LON_MAX,
 )
 from backend.train import OceanProfileNet, Scaler
 
@@ -49,6 +50,7 @@ class InferenceEngine:
         self.input_names: list[str] = []
         self.metrics: dict = {}
         self._glorys_cache: dict | None = None
+        self._wind_cache: dict | None = None
         self._device = torch.device("cpu")
 
     def load(self) -> bool:
@@ -127,6 +129,7 @@ class InferenceEngine:
             bott  = ds["bottomT"].isel(time=t_idx).values
             temp_mean = ds["thetao"].mean("time").values
             sal_mean  = ds["so"].mean("time").values
+            observation_time = float(ds["time"].values[t_idx])
             ds.close()
 
             cache["lats"]       = lats
@@ -139,6 +142,7 @@ class InferenceEngine:
             cache["bottom_t"]   = bott
             cache["temp_mean"]  = temp_mean
             cache["sal_mean"]   = sal_mean
+            cache["observation_date"] = (pd.Timestamp("1950-01-01") + pd.Timedelta(hours=observation_time)).date().isoformat()
         except Exception as e:
             log.error(f"GLORYS cache load failed: {e}")
             cache = {}
@@ -170,7 +174,31 @@ class InferenceEngine:
             "depths": depths,
             "nearest_lat": float(lats[i_lat]),
             "nearest_lon": float(lons[i_lon]),
+            "observation_date": cache.get("observation_date"),
         }
+
+    def nearest_wind(self, lat: float, lon: float) -> dict:
+        """Return the latest real CCMP surface wind at the nearest grid cell."""
+        if self._wind_cache is None:
+            try:
+                with xr.open_dataset(WINDS_025, decode_times=False) as ds:
+                    lats = ds["latitude"].values
+                    lons = ds["longitude"].values
+                    time_values = ds["time"].values
+                    i_lat = int(np.argmin(np.abs(lats - lat)))
+                    i_lon = int(np.argmin(np.abs(lons - lon)))
+                    t_idx = len(time_values) - 1
+                    ws = ds["ws"].isel(time=t_idx, latitude=i_lat, longitude=i_lon).item()
+                    uwnd = ds["uwnd"].isel(time=t_idx, latitude=i_lat, longitude=i_lon).item()
+                    vwnd = ds["vwnd"].isel(time=t_idx, latitude=i_lat, longitude=i_lon).item()
+                    units = ds["time"].attrs.get("units", "hours since 1987-01-01 00:00:00")
+                    origin = pd.Timestamp(units.split(" since ", 1)[1])
+                    date = (origin + pd.Timedelta(hours=float(time_values[t_idx]))).date().isoformat()
+                self._wind_cache = {"speed": float(ws), "u": float(uwnd), "v": float(vwnd), "date": date}
+            except Exception as exc:
+                log.error("CCMP wind cache load failed: %s", exc)
+                self._wind_cache = {}
+        return self._wind_cache
 
     def predict(
         self, lat: float, lon: float,
@@ -228,11 +256,12 @@ class InferenceEngine:
 
         # Valid surface features from real GLORYS
         surf_t  = surf_temp if surf_temp is not None and np.isfinite(surf_temp) else raw_surf_t
-        surf_s  = surf_sal if surf_sal is not None and np.isfinite(surf_sal) else glorys.get("surf_sal", 35.0)
+        surf_s  = surf_sal if surf_sal is not None and np.isfinite(surf_sal) else glorys.get("surf_sal", np.nan)
         sla_v   = sla if sla is not None and np.isfinite(sla) else glorys.get("ssh", 0.0)
         adt_v   = adt if adt is not None and np.isfinite(adt) else glorys.get("ssh", 0.1)
-        ws_v    = wind_speed if wind_speed is not None and np.isfinite(wind_speed) else 6.5
-        mld_v   = mld if mld is not None and np.isfinite(mld) else glorys.get("mld", 50.0)
+        wind = self.nearest_wind(lat, lon)
+        ws_v    = wind_speed if wind_speed is not None and np.isfinite(wind_speed) else wind.get("speed", np.nan)
+        mld_v   = mld if mld is not None and np.isfinite(mld) else glorys.get("mld", np.nan)
 
         depths = glorys.get("depths", GLORYS_DEPTHS_M)
         sal_prof_raw = glorys.get("sal_profile_glorys", [])
@@ -311,6 +340,7 @@ class InferenceEngine:
             "bottom_temp":      _clean_float(glorys.get("bottom_t")),
             "salinity":         _clean_float(glorys.get("surf_sal")),
             "wind_speed":       _clean_float(ws_v),
+            "wind_observation_date": wind.get("date"),
             "sea_level":        _clean_float(sla_v, 3),
             "current_speed":    None,
             "current_direction": None,
@@ -327,7 +357,8 @@ class InferenceEngine:
             "provenance": {
                 "source": "Copernicus Marine GLORYS12V1 Reanalysis",
                 "dataset_id": "GLOBAL_REANALYSIS_PHY_001_031",
-                "observation_date": "2024-01-07",
+                "observation_date": glorys.get("observation_date"),
+                "wind_observation_date": wind.get("date"),
                 "spatial_resolution": "0.083° x 0.083° (~9 km)",
                 "depth_levels": 35,
                 "model": "OceanProfileNet (8 surface features -> 35 depths with MC Dropout)",

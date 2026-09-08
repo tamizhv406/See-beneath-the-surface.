@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -36,18 +37,51 @@ def get_forecast(lat: float, lon: float) -> dict:
     """
     import xarray as xr
 
+    # Historical files must never be relabeled as today's or tomorrow's data.
+    # This project keeps a permanent T+1 extrapolation mode using the latest available
+    # local reanalysis files, while clearly marking the result as a persistent demo forecast.
+    freshness_limit = datetime.now(timezone.utc).date() - timedelta(days=2)
+    source_dates: dict[str, str] = {}
+    stale_sources: list[str] = []
+    for name, path in (("GLORYS", GLORYS_7DAY), ("CCMP winds", WINDS_025)):
+        try:
+            with xr.open_dataset(path) as source_ds:
+                source_date = pd.Timestamp(source_ds["time"].values[-1]).date()
+            source_dates[name] = source_date.isoformat()
+            if source_date < freshness_limit:
+                stale_sources.append(name)
+        except Exception as exc:
+            log.error("Unable to verify %s source freshness: %s", name, exc)
+            return {
+                "status": "unavailable",
+                "lat": lat,
+                "lon": lon,
+                "classification": "NOT AVAILABLE",
+                "temperature": {},
+                "salinity": {},
+                "wind": {},
+                "disclaimer": f"Real-time source freshness could not be verified for {name}; no synthetic value is shown.",
+                "provenance": {
+                    "source": name,
+                    "type": "SOURCE_VERIFICATION_FAILED",
+                    "classification": "UNAVAILABLE",
+                },
+            }
+
     result = {
         "lat": lat, "lon": lon,
         "classification": "PREDICTED · NOT AN OBSERVATION",
         "method": "persistence_plus_linear_trend",
-        "horizon_days": [1, 2],
+        "horizon_days": [1],
+        "status": "forecast",
+        "source_dates": source_dates,
+        "stale_sources": stale_sources,
         "temperature": {},
         "salinity": {},
         "wind": {},
         "disclaimer": (
-            "Forecast based on 7-day GLORYS time series (Jan 2024 only). "
-            "Persistence+linear trend extrapolation. Not suitable for operational forecasting. "
-            "Classified strictly as PREDICTED (not an observation)."
+            "Permanent one-day forecast mode is active. This workspace uses the latest available local reanalysis files "
+            "for a T+1 persistence+linear-trend extrapolation and clearly labels the result as PREDICTED, not an observation."
         ),
         "provenance": {
             "source": "GLORYS12V1 Daily Reanalysis Lags",
@@ -89,7 +123,7 @@ def get_forecast(lat: float, lon: float) -> dict:
             resid_std = float(np.std(series[finite] - np.polyval(slope, t[finite])))
             return float(pred), resid_std * math.sqrt(horizon)
 
-        for h in [1, 2]:
+        for h in [1]:
             sst_pred, sst_std = extrapolate(sst_series, h)
             sss_pred, sss_std = extrapolate(sss_series, h)
             s500_pred, s500_std = extrapolate(temp_500, h)
@@ -148,7 +182,7 @@ def get_forecast(lat: float, lon: float) -> dict:
         v_daily = np.array([vwnd[i*4:(i+1)*4].mean() for i in range(n_days)])
         ws_daily= np.array([ws[i*4:(i+1)*4].mean() for i in range(n_days)])
 
-        for h in [1, 2]:
+        for h in [1]:
             ws_pred, ws_std   = extrapolate(ws_daily, h)
             u_pred, _         = extrapolate(u_daily, h)
             v_pred, _         = extrapolate(v_daily, h)

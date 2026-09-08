@@ -23,7 +23,7 @@
       "lon": 62.3599,
       "max_depth": 1846.1,
       "surf_temp": 26.145,
-      "surf_psal": null,
+      "surf_psal": 31.624,
       "n_levels": 928,
       "quality": "QC-passed",
       "source": "20240103_prof.nc"
@@ -233,7 +233,7 @@
       "lon": 62.2167,
       "max_depth": 1202.0,
       "surf_temp": 26.305,
-      "surf_psal": null,
+      "surf_psal": 31.66,
       "n_levels": 606,
       "quality": "QC-passed",
       "source": "20240107_prof.nc"
@@ -304,7 +304,7 @@
       "max_depth": 1212.1,
       "surf_temp": 26.362,
       "surf_psal": 36.346,
-      "n_levels": 790,
+      "n_levels": 792,
       "quality": "QC-passed",
       "source": "20240108_prof.nc"
     },
@@ -374,7 +374,7 @@
       "max_depth": 1232.8,
       "surf_temp": 26.384,
       "surf_psal": 36.278,
-      "n_levels": 814,
+      "n_levels": 815,
       "quality": "QC-passed",
       "source": "20240110_prof.nc"
     },
@@ -463,6 +463,20 @@
       "source": "20240113_prof.nc"
     },
     {
+      "id": "7901016-14",
+      "platform": "7901016",
+      "cycle": 14,
+      "date": "2024-01-13T05:45:30",
+      "lat": 5.1722,
+      "lon": 49.0682,
+      "max_depth": 2006.9,
+      "surf_temp": 27.174,
+      "surf_psal": 35.488,
+      "n_levels": 1013,
+      "quality": "QC-passed",
+      "source": "20240113_prof.nc"
+    },
+    {
       "id": "2903137-43",
       "platform": "2903137",
       "cycle": 43,
@@ -500,7 +514,7 @@
       "max_depth": 1242.7,
       "surf_temp": 26.651,
       "surf_psal": 35.972,
-      "n_levels": 813,
+      "n_levels": 815,
       "quality": "QC-passed",
       "source": "20240114_prof.nc"
     },
@@ -639,7 +653,7 @@
       "lon": 85.3463,
       "max_depth": 2036.0,
       "surf_temp": 28.434,
-      "surf_psal": null,
+      "surf_psal": 29.43,
       "n_levels": 1023,
       "quality": "QC-passed",
       "source": "20240116_prof.nc"
@@ -653,7 +667,7 @@
       "lon": 70.7883,
       "max_depth": 2036.0,
       "surf_temp": 29.527,
-      "surf_psal": null,
+      "surf_psal": 34.305,
       "n_levels": 1023,
       "quality": "QC-passed",
       "source": "20240116_prof.nc"
@@ -710,7 +724,7 @@
       "max_depth": 1196.9,
       "surf_temp": 25.405,
       "surf_psal": 36.799,
-      "n_levels": 782,
+      "n_levels": 784,
       "quality": "QC-passed",
       "source": "20240118_prof.nc"
     },
@@ -738,7 +752,7 @@
       "max_depth": 1193.2,
       "surf_temp": 25.824,
       "surf_psal": 36.56,
-      "n_levels": 783,
+      "n_levels": 785,
       "quality": "QC-passed",
       "source": "20240118_prof.nc"
     },
@@ -794,7 +808,7 @@
       "max_depth": 1187.1,
       "surf_temp": 26.481,
       "surf_psal": 36.077,
-      "n_levels": 776,
+      "n_levels": 782,
       "quality": "QC-passed",
       "source": "20240120_prof.nc"
     },
@@ -808,7 +822,7 @@
       "max_depth": 1233.2,
       "surf_temp": 26.727,
       "surf_psal": 35.712,
-      "n_levels": 807,
+      "n_levels": 809,
       "quality": "QC-passed",
       "source": "20240120_prof.nc"
     },
@@ -962,7 +976,7 @@
       "max_depth": 1231.1,
       "surf_temp": 25.922,
       "surf_psal": 35.581,
-      "n_levels": 808,
+      "n_levels": 810,
       "quality": "QC-passed",
       "source": "20240125_prof.nc"
     },
@@ -990,7 +1004,7 @@
       "max_depth": 1231.0,
       "surf_temp": 26.448,
       "surf_psal": 36.143,
-      "n_levels": 801,
+      "n_levels": 807,
       "quality": "QC-passed",
       "source": "20240125_prof.nc"
     },
@@ -1004,7 +1018,7 @@
       "max_depth": 1221.6,
       "surf_temp": 25.748,
       "surf_psal": 36.614,
-      "n_levels": 791,
+      "n_levels": 793,
       "quality": "QC-passed",
       "source": "20240125_prof.nc"
     },
@@ -1018,7 +1032,7 @@
       "max_depth": 1204.5,
       "surf_temp": 25.104,
       "surf_psal": 36.757,
-      "n_levels": 767,
+      "n_levels": 769,
       "quality": "QC-passed",
       "source": "20240125_prof.nc"
     },
@@ -1031,7 +1045,7 @@
       "lon": 61.8223,
       "max_depth": 1849.6,
       "surf_temp": 26.055,
-      "surf_psal": null,
+      "surf_psal": 31.734,
       "n_levels": 930,
       "quality": "QC-passed",
       "source": "20240126_prof.nc"
@@ -1074,7 +1088,7 @@
       "max_depth": 1205.2,
       "surf_temp": 26.543,
       "surf_psal": 35.893,
-      "n_levels": 797,
+      "n_levels": 799,
       "quality": "QC-passed",
       "source": "20240127_prof.nc"
     },
@@ -1200,7 +1214,7 @@
       "max_depth": 1215.4,
       "surf_temp": 25.7,
       "surf_psal": 36.637,
-      "n_levels": 796,
+      "n_levels": 798,
       "quality": "QC-passed",
       "source": "20240129_prof.nc"
     },
@@ -1242,7 +1256,7 @@
       "max_depth": 1987.7,
       "surf_temp": 26.313,
       "surf_psal": 34.465,
-      "n_levels": 980,
+      "n_levels": 993,
       "quality": "QC-passed",
       "source": "20240130_prof.nc"
     },
@@ -1329,7 +1343,35 @@
       "n_levels": 942,
       "quality": "QC-passed",
       "source": "20240131_prof.nc"
+    },
+    {
+      "id": "1902373-81",
+      "platform": "1902373",
+      "cycle": 81,
+      "date": "2026-09-07T03:08:53.000333312",
+      "lat": 14.3752,
+      "lon": 92.0202,
+      "max_depth": 1712.0,
+      "surf_temp": 29.206,
+      "surf_psal": 31.616,
+      "n_levels": 862,
+      "quality": "QC-passed",
+      "source": "R1902373_081_prof.nc"
+    },
+    {
+      "id": "1902756-56",
+      "platform": "1902756",
+      "cycle": 56,
+      "date": "2026-09-08T11:46:20",
+      "lat": 16.8155,
+      "lon": 56.3875,
+      "max_depth": 2009.0,
+      "surf_temp": 25.107,
+      "surf_psal": 35.827,
+      "n_levels": 1004,
+      "quality": "QC-passed",
+      "source": "R1902756_056_prof.nc"
     }
   ],
-  "count": 95
+  "count": 98
 }

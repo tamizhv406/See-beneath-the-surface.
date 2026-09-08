@@ -32,7 +32,7 @@ type OceanMapProps = {
   onViewProvenance?: (sourceKey: string, context?: any) => void
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || ""
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8003"
 
 const coords: Record<string, [number, number]> = {
   atlantic: [8.5, 74.2],
@@ -51,7 +51,12 @@ function Recenter({ selected }: { selected: Location }) {
 }
 
 function MapClick({ onMapClick }: { onMapClick: (lat: number, lon: number) => void }) {
-  useMapEvents({ click: (event) => onMapClick(event.latlng.lat, event.latlng.lng) })
+  useMapEvents({
+    click: (event) => onMapClick(
+      Math.max(5, Math.min(30, event.latlng.lat)),
+      Math.max(45, Math.min(105, event.latlng.lng)),
+    ),
+  })
   return null
 }
 
@@ -95,21 +100,16 @@ export function OceanMap({
         const [lat, lon] = coords[location.id] ?? [8.5, 74.2]
         try {
           const response = await fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
+          if (!response.ok) return [location.id, null] as const
           const data = await response.json()
-          return [location.id, data || (getPrediction(lat, lon) as any)] as const
+          return [location.id, data] as const
         } catch {
-          return [location.id, getPrediction(lat, lon) as any] as const
+          return [location.id, null] as const
         }
       })).then((entries) => {
         const valid = entries.filter((e): e is readonly [string, any] => e[1] !== null)
         setObservations(Object.fromEntries(valid))
       }).catch(() => undefined)
-    } else {
-      const entries = locations.map((location) => {
-        const [lat, lon] = coords[location.id] ?? [8.5, 74.2]
-        return [location.id, getPrediction(lat, lon) as any] as const
-      })
-      setObservations(Object.fromEntries(entries))
     }
   }, [locations])
 
@@ -118,14 +118,11 @@ export function OceanMap({
     if (API_URL) {
       fetch(`${API_URL}/predict?lat=${selected.lat}&lon=${selected.lon}`)
         .then((response) => response.json())
-        .then((data: Observation) => setObservations((current) => ({ ...current, [selected.id]: data || (getPrediction(selected.lat!, selected.lon!) as any) })))
-        .catch(() => {
-          const fallback = getPrediction(selected.lat!, selected.lon!)
-          if (fallback) setObservations((current) => ({ ...current, [selected.id]: fallback as any }))
+        .then((data: Observation) => {
+          if (data && !('error' in data)) {
+            setObservations((current) => ({ ...current, [selected.id]: data }))
+          }
         })
-    } else {
-      const fallback = getPrediction(selected.lat, selected.lon)
-      if (fallback) setObservations((current) => ({ ...current, [selected.id]: fallback as any }))
     }
   }, [selected])
 
@@ -189,7 +186,7 @@ export function OceanMap({
       )}
 
       {mode === '2D' ? (
-        <MapContainer center={[12, 75]} zoom={4} zoomControl={false} scrollWheelZoom className="leaflet-map" aria-label="SIH 26066 satellite reconstruction map of the Indian Ocean">
+        <MapContainer center={[12, 75]} zoom={4} minZoom={4} maxBounds={[[5, 45], [30, 105]]} maxBoundsViscosity={1} zoomControl={false} scrollWheelZoom className="leaflet-map" aria-label="SIH 26066 satellite reconstruction map of the Indian Ocean">
           <TileLayer attribution="Tiles © Esri" url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" />
           <Recenter selected={selected} />
           <MapClick onMapClick={mapClickHandler} />

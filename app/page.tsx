@@ -102,6 +102,7 @@ type OceanData = {
   bottom_temp: number | null;
   salinity: number | null;
   wind_speed: number | null;
+  wind_observation_date?: string;
   sea_level: number | null;
   current_speed: number | null;
   current_direction: number | null;
@@ -115,6 +116,7 @@ type OceanData = {
 };
 
 type ForecastResponse = {
+  status?: string;
   lat: number;
   lon: number;
   method: string;
@@ -166,6 +168,30 @@ type HistoricalResponse = {
   provenance?: { source: string; temporal_range: string; qc: string };
 };
 
+type PointObservation = {
+  status: string;
+  requested_date?: string;
+  selected_date?: string;
+  date_selection?: string;
+  coordinates?: { lat: number; lon: number };
+  platform?: string;
+  cycle?: number;
+  temperature?: number | null;
+  salinity?: number | null;
+  wind?: number | null;
+  wind_status?: string;
+  source?: string;
+  message?: string;
+};
+
+type HazardResponse = {
+  status: string;
+  earthquakes: { title: string; magnitude: number | null; time: number | null; url?: string }[];
+  tsunami_alerts: { event: string; headline: string; area?: string; url?: string }[];
+  cyclones_storms: { event: string; headline: string; area?: string; url?: string }[];
+  note?: string;
+};
+
 type SubsurfaceResponse = {
   status: string;
   thermocline_depth_m: number | null;
@@ -178,7 +204,7 @@ type SubsurfaceResponse = {
   provenance?: { source: string; qc: string };
 };
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8003";
 
 const locations: Location[] = [
   {
@@ -347,6 +373,9 @@ export default function Page() {
   const [historicalData, setHistoricalData] = useState<HistoricalResponse | null>(null);
   const [subsurfaceData, setSubsurfaceData] = useState<SubsurfaceResponse | null>(null);
   const [dataQualityData, setDataQualityData] = useState<any>(null);
+  const [observationDate, setObservationDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [pointObservation, setPointObservation] = useState<PointObservation | null>(null);
+  const [hazardData, setHazardData] = useState<HazardResponse | null>(null);
 
   // Provenance Modal Inspection State
   const [provenanceModalOpen, setProvenanceModalOpen] = useState(false);
@@ -371,35 +400,52 @@ export default function Page() {
       // 1. Core Profile & Observations
       fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
         .then((res) => (res.ok ? res.json() : null))
-        .then((data: OceanData | null) => setOceanData(data || (getPrediction(lat, lon) as any)))
-        .catch(() => setOceanData(getPrediction(lat, lon) as any))
-        .finally(() => setDataLoading(false));
+        .then((data: OceanData | null) => setOceanData(data))
+        .catch(() => setOceanData(null))
+        .finally(() => {
+          setDataLoading(false);
+          setDemoRunning(false);
+        });
 
       // 2. Tomorrow Forecast (T+1 & T+2)
       fetch(`${API_URL}/api/forecast/2day?lat=${lat}&lon=${lon}`)
         .then((res) => (res.ok ? res.json() : null))
-        .then((data: ForecastResponse | null) => setForecastData(data || (getForecast(lat, lon) as any)))
-        .catch(() => setForecastData(getForecast(lat, lon) as any));
+        .then((data: ForecastResponse | null) => setForecastData(data))
+        .catch(() => setForecastData(null));
 
       // 3. Historical Time Series
       fetch(`${API_URL}/api/historical?lat=${lat}&lon=${lon}`)
         .then((res) => (res.ok ? res.json() : null))
-        .then((data: HistoricalResponse | null) => setHistoricalData(data || (getHistorical(lat, lon) as any)))
-        .catch(() => setHistoricalData(getHistorical(lat, lon) as any));
+        .then((data: HistoricalResponse | null) => setHistoricalData(data))
+        .catch(() => setHistoricalData(null));
 
       // 4. Subsurface Gradients & T-S Diagram
       fetch(`${API_URL}/api/analysis/subsurface?lat=${lat}&lon=${lon}`)
         .then((res) => (res.ok ? res.json() : null))
-        .then((data: SubsurfaceResponse | null) => setSubsurfaceData(data || (getSubsurface(lat, lon) as any)))
-        .catch(() => setSubsurfaceData(getSubsurface(lat, lon) as any));
+        .then((data: SubsurfaceResponse | null) => setSubsurfaceData(data))
+        .catch(() => setSubsurfaceData(null));
     } else {
-      setOceanData(getPrediction(lat, lon) as any);
-      setForecastData(getForecast(lat, lon) as any);
-      setHistoricalData(getHistorical(lat, lon) as any);
-      setSubsurfaceData(getSubsurface(lat, lon) as any);
+      setOceanData(null);
+      setForecastData(null);
+      setHistoricalData(null);
+      setSubsurfaceData(null);
       setDataLoading(false);
+      setDemoRunning(false);
     }
   }, [selected]);
+
+  useEffect(() => {
+    if (!API_URL || selected.lat == null || selected.lon == null) return;
+    const query = new URLSearchParams({ lat: String(selected.lat), lon: String(selected.lon), date: observationDate });
+    fetch(`${API_URL}/api/point-observation?${query}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: PointObservation | null) => setPointObservation(data))
+      .catch(() => setPointObservation(null));
+    fetch(`${API_URL}/api/hazards?lat=${selected.lat}&lon=${selected.lon}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: HazardResponse | null) => setHazardData(data))
+      .catch(() => setHazardData(null));
+  }, [selected, observationDate]);
 
   // Load Real Validation Metrics & Real Data Quality Statistics
   useEffect(() => {
@@ -429,12 +475,11 @@ export default function Page() {
       fetch(`${API_URL}/argo/profiles?${query}`)
         .then((res) => res.json())
         .then((data) => {
-          const profs = data?.profiles && data.profiles.length ? data.profiles : getArgoProfiles(argoDateFrom, argoDateTo, argoParameter);
-          setArgoProfiles(profs);
+          setArgoProfiles(data?.profiles || []);
         })
-        .catch(() => setArgoProfiles(getArgoProfiles(argoDateFrom, argoDateTo, argoParameter)));
+        .catch(() => setArgoProfiles([]));
     } else {
-      setArgoProfiles(getArgoProfiles(argoDateFrom, argoDateTo, argoParameter));
+      setArgoProfiles([]);
     }
   }, [argoDateFrom, argoDateTo, argoParameter]);
 
@@ -445,11 +490,11 @@ export default function Page() {
         .then((res) => res.json())
         .then((data) => {
           if (data && !data.error) setArgoDetail(data);
-          else setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any);
+          else setArgoDetail(null);
         })
-        .catch(() => setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any));
+        .catch(() => setArgoDetail(null));
     } else {
-      setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any);
+      setArgoDetail(null);
     }
   };
 
@@ -458,17 +503,7 @@ export default function Page() {
       const query = new URLSearchParams({ date_from: argoDateFrom, date_to: argoDateTo, parameter: argoParameter });
       window.open(`${API_URL}/argo/export?${query}`, "_blank");
     } else {
-      const profiles = getArgoProfiles(argoDateFrom, argoDateTo, argoParameter, 5000);
-      if (!profiles.length) return;
-      const keys = Object.keys(profiles[0]);
-      const csv = [keys.join(','), ...profiles.map((p: any) => keys.map(k => JSON.stringify(p[k] ?? '')).join(','))].join('\n');
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `argo_${argoDateFrom}_${argoDateTo}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      return;
     }
   };
 
@@ -521,7 +556,7 @@ export default function Page() {
 
   const runPipelineDemo = () => {
     setDemoRunning(true);
-    window.setTimeout(() => setDemoRunning(false), 2000);
+    setSelected((current) => ({ ...current }));
   };
 
   const selectWorkspace = (label: string, targetId: string) => {
@@ -609,10 +644,10 @@ export default function Page() {
               className="primary-button"
               onClick={runPipelineDemo}
               disabled={demoRunning}
-              title="Run end-to-end OceanEmbed reconstruction pipeline"
+              title="Refresh real ocean data for the selected station"
             >
               <Play size={14} fill="currentColor" />
-              {demoRunning ? "Running Pipeline…" : "Run OceanEmbed"}
+              {demoRunning ? "Refreshing Data…" : "Refresh Real Data"}
             </button>
           </div>
         </header>
@@ -939,9 +974,9 @@ export default function Page() {
                   />
                   <MetricCard
                     label="Wind Speed (10m surface)"
-                    value={formatValue(oceanData?.wind_speed)}
-                    suffix="m/s"
-                    note="CCMP satellite wind analysis (surface only; no 1000m wind)"
+                    value={oceanData?.wind_speed == null ? "Unavailable" : formatValue(oceanData.wind_speed)}
+                    suffix={oceanData?.wind_speed == null ? undefined : "m/s"}
+                    note={oceanData?.wind_observation_date ? `CCMP real wind observation · ${oceanData.wind_observation_date} · surface 10m only` : "CCMP wind unavailable for the selected source date"}
                     badge={isNoData ? "NO DATA" : "MODEL / REANALYSIS"}
                     onViewSource={() =>
                       handleOpenProvenance("ccmp", {
@@ -1247,7 +1282,7 @@ export default function Page() {
               <div className="panel-header">
                 <div>
                   <SectionLabel>Future Forecast Module</SectionLabel>
-                  <h2>Tomorrow&apos;s Temperature &amp; Salinity Prediction (T+1 &amp; T+2)</h2>
+                  <h2>Permanent One-Day Prediction (T+1)</h2>
                 </div>
                 <span
                   style={{
@@ -1263,7 +1298,16 @@ export default function Page() {
                 </span>
               </div>
 
-              {forecastData?.temperature ? (
+              {forecastData?.status === "unavailable" ? (
+                <div style={{ padding: "20px", textAlign: "center", color: "var(--muted-foreground)" }}>
+                  {forecastData.disclaimer}
+                  {forecastData.source_dates && (
+                    <div style={{ marginTop: "8px", fontSize: "10px" }}>
+                      Latest local source dates: {Object.entries(forecastData.source_dates).map(([name, date]) => `${name} ${date}`).join("; ")}
+                    </div>
+                  )}
+                </div>
+              ) : forecastData?.temperature ? (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginTop: "18px" }}>
                   <div style={{ background: "#081b24", padding: "16px", borderRadius: "8px", border: "1px solid #21404a" }}>
                     <span style={{ fontSize: "10px", color: "var(--muted-foreground)" }}>TOMORROW&apos;S SURFACE TEMPERATURE (T+1)</span>
@@ -1316,6 +1360,65 @@ export default function Page() {
             </div>
           </section>
 
+          <section id="live-data-section" style={{ marginTop: "30px" }}>
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <SectionLabel>Real Date-Based Observations</SectionLabel>
+                  <h2>Temperature, Salinity &amp; Wind Availability</h2>
+                </div>
+                <label style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>
+                  Requested date{" "}
+                  <input type="date" value={observationDate} onChange={(event) => setObservationDate(event.target.value)} />
+                </label>
+              </div>
+              <div style={{ marginTop: "14px", fontSize: "11px", color: "var(--muted-foreground)" }}>
+                Only the exact requested date is accepted. If that date has no real profile, no other date is substituted.
+              </div>
+              {pointObservation?.status === "observed" ? (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", marginTop: "14px" }}>
+                  <MetricCard label="Temperature" value={formatValue(pointObservation.temperature)} suffix="°C" note="Real Argo surface observation" />
+                  <MetricCard label="Salinity" value={formatValue(pointObservation.salinity)} suffix="PSU" note="Real Argo surface observation" />
+                  <MetricCard
+                    label="Wind"
+                    value={oceanData?.wind_speed == null ? "Unavailable" : formatValue(oceanData.wind_speed)}
+                    suffix={oceanData?.wind_speed == null ? undefined : "m/s"}
+                    note={oceanData?.wind_observation_date ? `Latest real CCMP surface wind · ${oceanData.wind_observation_date}` : "No real wind source for this date"}
+                  />
+                  <MetricCard label="Selected observation" value={pointObservation.selected_date || "—"} note={`Requested ${pointObservation.requested_date || observationDate}`} />
+                </div>
+              ) : (
+                <div style={{ marginTop: "14px", color: "var(--muted-foreground)", fontSize: "12px" }}>
+                  {pointObservation?.message || "Real observation unavailable for this exact coordinate/date."}
+                </div>
+              )}
+              <p style={{ marginTop: "12px", fontSize: "10px", color: "#709094" }}>Source: {pointObservation?.source || "Argo GDAC"}. Wind requires a separate real wind dataset covering the selected date.</p>
+            </div>
+          </section>
+
+          <section id="hazards-section" style={{ marginTop: "30px" }}>
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <SectionLabel>Official Hazard Monitoring</SectionLabel>
+                  <h2>Earthquakes, Tsunami Alerts &amp; Cyclone Storm Alerts</h2>
+                </div>
+                <span style={{ fontSize: "10px", color: "#facc15", fontWeight: "bold" }}>LIVE MONITORING · NOT PREDICTION</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginTop: "14px" }}>
+                <MetricCard label="Earthquakes (last 7 days)" value={String(hazardData?.earthquakes?.length ?? "—")} suffix="events" note="USGS real-time feed" />
+                <MetricCard label="Tsunami alerts" value={String(hazardData?.tsunami_alerts?.length ?? "—")} suffix="active" note="NOAA/NWS official alerts" />
+                <MetricCard label="Cyclone/storm alerts" value={String(hazardData?.cyclones_storms?.length ?? "—")} suffix="active" note="NOAA/NWS official alerts" />
+              </div>
+              {(hazardData?.tsunami_alerts?.length || hazardData?.cyclones_storms?.length) ? (
+                <div style={{ marginTop: "12px", fontSize: "11px", color: "#fca5a5" }}>
+                  {[...(hazardData.tsunami_alerts || []), ...(hazardData.cyclones_storms || [])].map((alert, index) => <div key={`${alert.event}-${index}`}>{alert.event}: {alert.headline}</div>)}
+                </div>
+              ) : null}
+              <p style={{ marginTop: "12px", fontSize: "10px", color: "#709094" }}>{hazardData?.note || "Official feeds unavailable. Exact future earthquake or tsunami prediction is not scientifically reliable."}</p>
+            </div>
+          </section>
+
           {/* WORKSPACE 8: Data Quality & QC Verification */}
           <section id="data-quality-section" style={{ marginTop: "30px" }}>
             <div className="panel">
@@ -1334,17 +1437,17 @@ export default function Page() {
                 <div style={{ background: "#081b24", padding: "14px", borderRadius: "8px", border: "1px solid #21404a" }}>
                   <span style={{ fontSize: "10px", color: "var(--muted-foreground)" }}>ARGO IN-SITU PROFILES</span>
                   <strong style={{ display: "block", fontSize: "22px", color: "#22c55e", marginTop: "4px" }}>
-                    {dataQualityData?.argo_in_situ?.total_profiles ?? "1,060"}
+                    {dataQualityData?.argo_in_situ?.total_profiles ?? "Unavailable"}
                   </strong>
                   <small style={{ color: "#709094", fontSize: "10px" }}>
-                    100% CTD in-situ observations (Jan 2024)
+                    Real QC-passed profiles from the indexed Argo dataset
                   </small>
                 </div>
 
                 <div style={{ background: "#081b24", padding: "14px", borderRadius: "8px", border: "1px solid #21404a" }}>
                   <span style={{ fontSize: "10px", color: "var(--muted-foreground)" }}>VALID TEMP / SALINITY</span>
                   <strong style={{ display: "block", fontSize: "22px", color: "#38bdf8", marginTop: "4px" }}>
-                    100% Valid
+                    {dataQualityData?.argo_in_situ?.valid_temp_salinity_percent != null ? `${dataQualityData.argo_in_situ.valid_temp_salinity_percent}% Valid` : "Unavailable"}
                   </strong>
                   <small style={{ color: "#709094", fontSize: "10px" }}>
                     Zero synthetic or imputed records

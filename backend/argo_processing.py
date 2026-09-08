@@ -67,14 +67,24 @@ def process_argo_files() -> tuple[pd.DataFrame, pd.DataFrame]:
                 lon      = ds["LONGITUDE"].values.astype(float)
                 pos_qc   = np.array([decode_bytes(v) for v in ds["POSITION_QC"].values])
 
-                pres     = ds["PRES_ADJUSTED"].values.astype(np.float32)
-                pres_qc  = ds["PRES_ADJUSTED_QC"].values
+                # Delayed-mode files provide adjusted values; real-time files
+                # commonly leave adjusted arrays empty and provide raw values.
+                def prefer_adjusted(name: str) -> np.ndarray:
+                    adjusted = ds[f"{name}_ADJUSTED"].values
+                    raw = ds[name].values
+                    return np.where(np.isfinite(adjusted), adjusted, raw).astype(np.float32)
 
-                temp     = ds["TEMP_ADJUSTED"].values.astype(np.float32)
-                temp_qc  = ds["TEMP_ADJUSTED_QC"].values
+                def prefer_adjusted_qc(name: str) -> np.ndarray:
+                    adjusted_qc = ds[f"{name}_ADJUSTED_QC"].values
+                    raw_qc = ds[f"{name}_QC"].values
+                    return np.where(pd.notna(adjusted_qc), adjusted_qc, raw_qc)
 
-                psal     = ds["PSAL_ADJUSTED"].values.astype(np.float32)
-                psal_qc  = ds["PSAL_ADJUSTED_QC"].values
+                pres     = prefer_adjusted("PRES")
+                pres_qc  = prefer_adjusted_qc("PRES")
+                temp     = prefer_adjusted("TEMP")
+                temp_qc  = prefer_adjusted_qc("TEMP")
+                psal     = prefer_adjusted("PSAL")
+                psal_qc  = prefer_adjusted_qc("PSAL")
 
                 for i in range(n_prof):
                     # Replace 99999 sentinels with NaN
