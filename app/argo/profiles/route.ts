@@ -8,6 +8,6 @@ export async function GET(request: NextRequest) {
   const parameter = searchParams.get('parameter') || 'all';
   const limit = parseInt(searchParams.get('limit') || '2500', 10);
 
-  const profiles = getArgoProfiles(dateFrom, dateTo, parameter, limit);
+  const profiles = await getArgoProfiles(dateFrom, dateTo, parameter, limit);
   return NextResponse.json({ profiles, count: profiles.length });
 }

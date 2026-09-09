@@ -6,6 +6,6 @@ export async function GET(
   { params }: { params: Promise<{ platform: string; cycle: string }> }
 ) {
   const { platform, cycle } = await params;
-  const detail = getArgoSingleProfile(platform, cycle);
+  const detail = await getArgoSingleProfile(platform, cycle);
   return NextResponse.json(detail);
 }

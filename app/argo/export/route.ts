@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   const dateTo = searchParams.get('date_to') || '2024-01-31';
   const parameter = searchParams.get('parameter') || 'all';
 
-  const profiles = getArgoProfiles(dateFrom, dateTo, parameter, 50000);
+  const profiles = await getArgoProfiles(dateFrom, dateTo, parameter, 50000);
   if (!profiles.length) {
     return new NextResponse('No data', { status: 404 });
   }
