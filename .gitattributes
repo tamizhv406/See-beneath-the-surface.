@@ -1,0 +1,12 @@
+*.parquet filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.nc filter=lfs diff=lfs merge=lfs -text
+*.json filter=lfs diff=lfs merge=lfs -text
+*.csv filter=lfs diff=lfs merge=lfs -text
+ocean_data/** filter=lfs diff=lfs merge=lfs -text
+data[[:space:]]set/** filter=lfs diff=lfs merge=lfs -text
+org[[:space:]]dataset/** filter=lfs diff=lfs merge=lfs -text
+data/processed/** filter=lfs diff=lfs merge=lfs -text
+models/** filter=lfs diff=lfs merge=lfs -text
+model_outputs/** filter=lfs diff=lfs merge=lfs -text
