@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { getObservationsForDate } from '@/lib/ocean-service'
+import { getObservationsForDate, isOceanCoordinate } from '@/lib/ocean-service'
 
 const Ocean3DScene = dynamic(() => import('./ocean-3d-scene').then(m => m.Ocean3DScene), { ssr: false })
 
@@ -244,7 +244,39 @@ export function OceanMap({
 
       markersLayer.addLayer(marker)
     })
-  }, [selectedDate, metric, selected.id, locations])
+
+    // If a custom coordinate was clicked, render an active target marker showing Ocean vs Land status
+    if (selected.id.startsWith('clicked-') && selected.lat != null && selected.lon != null) {
+      const isOcean = isOceanCoordinate(selected.lat, selected.lon)
+      const targetColor = isOcean ? '#06b6d4' : '#ef4444'
+      const icon = L.divIcon({
+        className: 'custom-clicked-marker',
+        html: `
+          <div style="position:relative; width:30px; height:30px; cursor:pointer;">
+            <div style="position:absolute; width:40px; height:40px; top:-5px; left:-5px; border-radius:50%; border:2px dashed ${targetColor}; animation:pulse-glow 1.6s infinite;"></div>
+            <svg width="30" height="30" viewBox="0 0 32 32" fill="none" style="filter: drop-shadow(0 0 10px ${targetColor});">
+              <circle cx="16" cy="16" r="13" fill="rgba(4, 16, 22, 0.95)" stroke="${targetColor}" stroke-width="2.5" />
+              <circle cx="16" cy="16" r="6" fill="${targetColor}" />
+              <circle cx="16" cy="16" r="2" fill="#ffffff" />
+            </svg>
+          </div>
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
+      })
+      const clickedMarker = L.marker([selected.lat, selected.lon], { icon })
+      clickedMarker.bindTooltip(`
+        <div style="font-family:sans-serif; padding:6px 10px; font-size:11px; background:#04131a; color:#fff; border-radius:6px; border:1px solid ${isOcean ? '#164e63' : '#7f1d1d'}; box-shadow:0 4px 12px rgba(0,0,0,0.8);">
+          <strong style="color:${targetColor}; font-size:12px;">${isOcean ? '🌊 Marine Coordinate' : '🏜️ Land Coordinate'}</strong><br/>
+          <div style="color:#94a3b8; font-size:10px; margin:2px 0 4px;">(${selected.lat.toFixed(2)}°N, ${selected.lon.toFixed(2)}°E)</div>
+          <span style="color:${isOcean ? '#67e8f9' : '#fca5a5'}; font-size:10px; line-height:1.4; display:block;">
+            ${isOcean ? 'Verified ocean body — Active marine observation' : '⚠️ Land Point: The Copernicus Marine dataset strictly covers oceanic water. Land contains no ocean measurements.'}
+          </span>
+        </div>
+      `, { direction: 'top', offset: [0, -16] }).openTooltip()
+      markersLayer.addLayer(clickedMarker)
+    }
+  }, [selectedDate, metric, selected.id, selected.lat, selected.lon, locations])
 
   return (
     <div className={`ocean-map live-map ${mode === '3D' ? 'ocean-map-3d' : ''}`}>

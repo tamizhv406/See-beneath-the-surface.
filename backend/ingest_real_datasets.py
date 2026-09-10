@@ -197,16 +197,24 @@ ds_th.close()
 ds_so.close()
 ds_w.close()
 
+# Extract authentic 0.083° Copernicus Land/Ocean mask
+print("Extracting authentic Copernicus Land/Ocean mask...", flush=True)
+import base64
+th_t0 = ds_th['thetao'].isel(time=0).squeeze().values
+is_ocean_matrix = ~np.isnan(th_t0) # Shape: (361, 720)
+packed_ocean_mask = np.packbits(is_ocean_matrix.astype(np.uint8))
+ocean_mask_b64 = base64.b64encode(packed_ocean_mask).decode('ascii')
+print(f"Generated authentic ocean mask ({len(packed_ocean_mask)} bytes, base64 len: {len(ocean_mask_b64)})", flush=True)
+
 # Prepare exported payload
 export_payload = {
     "metadata": {
-        "title": "Ocean Embed Authenticated In-Situ & Reanalysis Dataset",
-        "description": "100% data-driven real observations ingested from Copernicus Marine GLORYS Reanalysis and HY-2C Satellite Scatterometer.",
-        "generated_date": "2026-09-10",
-        "dates": all_dates,
+        "dataset_name": "Copernicus Marine Real Observations & Satellite Reanalysis",
+        "description": "Authentic ocean observations extracted from CMEMS Physical Reanalysis, Analysis/Forecast, and HY-2C Satellite scatterometer datasets.",
         "min_date": min_date,
         "max_date": max_date,
         "total_days": len(all_dates),
+        "dates": all_dates,
         "variable_availability": {
             "temperature": {
                 "variable": "thetao",
@@ -243,6 +251,15 @@ export_payload = {
             "available": False,
             "reason": "Supplied NetCDF datasets contain surface layer observations (0.49 m). Subsurface multi-depth CTD vertical profiles (Thermocline, Halocline, MLD) are unobserved in these files.",
             "rule_compliance": "Absolute Rule #1 Compliant - Zero synthetic profile data generated."
+        },
+        "ocean_mask": {
+            "b64": ocean_mask_b64,
+            "lat_min": 0.0,
+            "lat_max": 30.0,
+            "lat_count": 361,
+            "lon_min": 40.0,
+            "lon_max": 100.0,
+            "lon_count": 720
         }
     },
     "primary_stations": [s["id"] for s in stations_def],

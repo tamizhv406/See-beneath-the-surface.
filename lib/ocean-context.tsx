@@ -13,6 +13,7 @@ import {
   getAllStations,
   getHistoricalSeries,
   getStationObservation,
+  isOceanCoordinate,
   DateCoverage,
   MarineStation,
 } from "./ocean-service";
@@ -259,6 +260,13 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
   const isPastDate = selectedDate < minDate;
 
   const dateAlertMessage = useMemo(() => {
+    // 1. Check if coordinate falls on land
+    const lat = selected.lat ?? 8.5;
+    const lon = selected.lon ?? 74.2;
+    if (!isOceanCoordinate(lat, lon)) {
+      return `Land Coordinate Selected (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E) — Copernicus Marine Service strictly measures oceanic bodies of water. Land areas contain no sea surface temperature, salinity, or marine wind observations.`;
+    }
+
     if (isFutureDate) {
       return `No observations available for ${formatDisplayDate(selectedDate)}. Latest available observation: ${formatDisplayDate(maxDate)}.`;
     }
@@ -276,7 +284,7 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
       return `Temperature observations begin on ${formatDisplayDate(coverage.variableAvailability.temperature.first_date)}. Showing no temperature reading for ${formatDisplayDate(selectedDate)}.`;
     }
     return null;
-  }, [selectedDate, isFutureDate, isPastDate, maxDate, minDate, metric, coverage]);
+  }, [selectedDate, selected, isFutureDate, isPastDate, maxDate, minDate, metric, coverage]);
 
   const argoDateFrom = selectedDate;
   const setArgoDateFrom = (d: string) => setSelectedDate(d);
@@ -394,10 +402,13 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
   };
 
   const handleMapClick = (lat: number, lon: number) => {
+    const isOcean = isOceanCoordinate(lat, lon);
     setSelected({
       id: `clicked-${lat.toFixed(2)}-${lon.toFixed(2)}`,
-      name: `Marine Station (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`,
-      region: "Custom Map Coordinate",
+      name: isOcean
+        ? `Marine Station (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`
+        : `Land Coordinate (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`,
+      region: isOcean ? "Custom Marine Selection" : "Continental Landmass (No Marine Data)",
       x: 50,
       y: 50,
       code: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`,

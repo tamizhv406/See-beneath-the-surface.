@@ -83,6 +83,54 @@ const datesList: string[] = metadata.dates;
 const dateToIndexMap = new Map<string, number>();
 datesList.forEach((d, i) => dateToIndexMap.set(d, i));
 
+// Authentic Copernicus 0.083° Land/Ocean Mask Decoder
+let oceanMaskBytes: Uint8Array | null = null;
+
+function getOceanMask(): Uint8Array | null {
+  if (oceanMaskBytes) return oceanMaskBytes;
+  const b64 = (metadata as any)?.ocean_mask?.b64;
+  if (!b64) return null;
+  try {
+    if (typeof window === 'undefined') {
+      oceanMaskBytes = new Uint8Array(Buffer.from(b64, 'base64'));
+    } else {
+      const binaryStr = window.atob(b64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i++) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+      oceanMaskBytes = bytes;
+    }
+  } catch (e) {
+    console.error('Failed to decode Copernicus ocean mask', e);
+  }
+  return oceanMaskBytes;
+}
+
+/**
+ * Returns true if the coordinate falls on verified ocean/sea water within the Copernicus domain.
+ * Returns false if the coordinate falls on land (e.g. mainland India, Africa, Arabia, Sri Lanka interior)
+ * or is outside the spatial bounds (0°–30°N, 40°–100°E).
+ */
+export function isOceanCoordinate(lat: number, lon: number): boolean {
+  if (lat < 0.0 || lat > 30.0 || lon < 40.0 || lon > 100.0) {
+    return false;
+  }
+  const mask = getOceanMask();
+  if (!mask) return true; // Fallback if mask missing
+
+  const latIdx = Math.round(lat * 12);
+  const lonIdx = Math.round((lon - 40.0) * 12);
+  if (latIdx < 0 || latIdx >= 361 || lonIdx < 0 || lonIdx >= 720) {
+    return false;
+  }
+
+  const bitIdx = latIdx * 720 + lonIdx;
+  const byteIdx = Math.floor(bitIdx / 8);
+  const bitOffset = 7 - (bitIdx % 8);
+  return (mask[byteIdx] & (1 << bitOffset)) !== 0;
+}
+
 export function getDateCoverage(): DateCoverage {
   return {
     minDate: metadata.min_date,
@@ -321,15 +369,54 @@ export function getHistoricalSeries(
 
 // Backward-compatible adaptors for existing frontend views
 export function getPrediction(lat: number, lon: number, targetDate?: string) {
-  const { station, distanceDeg } = findClosestStation(lat, lon);
-  if (!station) return null;
-
-  // If outside domain (e.g. lat > 30 or lat < 0 or lon < 40 or lon > 100) or distance > 5°
-  if (lat < 0 || lat > 30 || lon < 40 || lon > 100 || distanceDeg > 5.5) {
+  // 1. Strict Land vs Ocean verification
+  const isOcean = isOceanCoordinate(lat, lon);
+  if (!isOcean) {
     return {
       status: 'no_data',
       isNoData: true,
-      message: 'Selected coordinate is outside the verified Copernicus Marine observation domain.',
+      isLand: true,
+      message: `The selected coordinate (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E) falls on land. The Copernicus Marine Service dataset strictly provides physical observations for oceanic waters. Land areas contain no marine measurements.`,
+      coordinates: { lat, lon },
+      nearest_grid: { lat, lon },
+      surface_temp: null,
+      salinity: null,
+      wind_speed: null,
+      wind_to_dir: null,
+      subsurface_temp: null,
+      subsurface_salinity: null,
+      bottom_temp: null,
+      sea_level: null,
+      current_speed: null,
+      current_direction: null,
+      mld: null,
+      temperature_profile: [],
+      model_profile: [],
+      reference_profile: [],
+      salinity_profile: [],
+      observed_salinity_profile: [],
+      temp_uncertainty: [],
+      sal_uncertainty: [],
+      provenance: {
+        source: 'Copernicus Marine Dataset Boundary (Land Masked)',
+        observation_date: targetDate || metadata.max_date,
+        model: 'CMEMS Physical Oceanography (Ocean Only)',
+        qc_status: 'Land Point — Masked as NaN in NetCDF',
+        classification: 'LAND / UNOBSERVED',
+      },
+    };
+  }
+
+  const { station, distanceDeg } = findClosestStation(lat, lon);
+  if (!station) return null;
+
+  // If outside domain or too far from station grid (> 3.5°)
+  if (lat < 0 || lat > 30 || lon < 40 || lon > 100 || distanceDeg > 3.5) {
+    return {
+      status: 'no_data',
+      isNoData: true,
+      isLand: false,
+      message: 'Selected marine coordinate is outside the verified Copernicus Marine observation domain.',
       coordinates: { lat, lon },
       surface_temp: null,
       salinity: null,
@@ -356,6 +443,7 @@ export function getPrediction(lat: number, lon: number, targetDate?: string) {
   return {
     status: obs.isNoData ? 'no_data' : 'success',
     isNoData: obs.isNoData,
+    isLand: false,
     coordinates: { lat: station.lat, lon: station.lon },
     nearest_grid: { lat: station.lat, lon: station.lon },
     surface_temp: obs.surface_temp,
@@ -387,8 +475,9 @@ export function getPrediction(lat: number, lon: number, targetDate?: string) {
 }
 
 export function getHistorical(lat: number, lon: number, endDate?: string) {
-  const { station } = findClosestStation(lat, lon);
-  if (!station) return null;
+  if (!isOceanCoordinate(lat, lon)) return null;
+  const { station, distanceDeg } = findClosestStation(lat, lon);
+  if (!station || distanceDeg > 3.5) return null;
 
   const hist = getHistoricalSeries(station.id, endDate, 7);
   if (!hist) return null;
@@ -411,8 +500,9 @@ export function getHistorical(lat: number, lon: number, endDate?: string) {
 }
 
 export function getSubsurface(lat: number, lon: number, targetDate?: string) {
-  const { station } = findClosestStation(lat, lon);
-  if (!station) return null;
+  if (!isOceanCoordinate(lat, lon)) return null;
+  const { station, distanceDeg } = findClosestStation(lat, lon);
+  if (!station || distanceDeg > 3.5) return null;
 
   const obs = getStationObservation(station.id, targetDate);
 
@@ -438,8 +528,9 @@ export function getSubsurface(lat: number, lon: number, targetDate?: string) {
 }
 
 export function getForecast(lat: number, lon: number) {
-  const { station } = findClosestStation(lat, lon);
-  if (!station) return null;
+  if (!isOceanCoordinate(lat, lon)) return null;
+  const { station, distanceDeg } = findClosestStation(lat, lon);
+  if (!station || distanceDeg > 3.5) return null;
 
   const latestObs = getStationObservation(station.id, metadata.max_date);
   const surfTemp = latestObs?.surface_temp ?? 28.5;
