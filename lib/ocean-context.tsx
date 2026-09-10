@@ -8,8 +8,13 @@ import {
   getSubsurface,
   getValidation,
   getDataQuality,
-  getArgoProfiles,
-  getArgoSingleProfile,
+  getDateCoverage,
+  getPrimaryStations,
+  getAllStations,
+  getHistoricalSeries,
+  getStationObservation,
+  DateCoverage,
+  MarineStation,
 } from "./ocean-service";
 
 export type Location = {
@@ -21,35 +26,11 @@ export type Location = {
   code: string;
   lat?: number;
   lon?: number;
+  is_primary?: boolean;
 };
 
 export type ProfilePoint = { depth: number; temperature: number; salinity?: number };
 export type UncertaintyPoint = { depth: number; lower: number; upper: number };
-
-export type ArgoProfile = {
-  id: string;
-  platform: string;
-  cycle: number;
-  date: string;
-  lat: number;
-  lon: number;
-  max_depth: number;
-  quality: string;
-};
-
-export type ArgoDetail = {
-  id: string;
-  platform: string;
-  cycle: number;
-  date: string;
-  lat: number;
-  lon: number;
-  max_depth: number;
-  quality: string;
-  source: string;
-  data_type: string;
-  profile: { depth: number; temperature: number | null; salinity: number | null }[];
-};
 
 export type ValidationMetrics = {
   best_validation_mae_c: number;
@@ -58,6 +39,7 @@ export type ValidationMetrics = {
   validation_bias?: number;
   validation_samples: number;
   validation_platforms: number;
+  dataset_lineage?: string;
 };
 
 export type OceanData = {
@@ -78,6 +60,7 @@ export type OceanData = {
   bottom_temp: number | null;
   salinity: number | null;
   wind_speed: number | null;
+  wind_to_dir?: number | null;
   sea_level: number | null;
   current_speed: number | null;
   current_direction: number | null;
@@ -87,12 +70,14 @@ export type OceanData = {
     observation_date?: string;
     model?: string;
     qc_status?: string;
+    classification?: string;
   };
 };
 
 export type ForecastResponse = {
   lat: number;
   lon: number;
+  classification: string;
   method: string;
   horizon_days: number[];
   temperature: {
@@ -110,6 +95,7 @@ export type ForecastResponse = {
     "t+1"?: {
       surface: { value: number | null; uncertainty_1sigma: number | null; unit: string };
       "500m": { value: number | null; unit: string };
+      observed_last: { surface: number | null; "500m": number | null };
     };
     "t+2"?: {
       surface: { value: number | null; uncertainty_1sigma: number | null; unit: string };
@@ -149,45 +135,26 @@ export type SubsurfaceResponse = {
   halocline_depth_m: number | null;
   max_salinity_gradient: number | null;
   mixed_layer_depth_m: number | null;
+  observed_surface_temp?: number | null;
+  observed_surface_sal?: number | null;
+  observed_depth_m?: number;
   gradients: { depth_mid: number; dt_dz_c_per_100m: number; ds_dz_psu_per_100m: number | null }[];
   ts_diagram: { depth: number; temperature: number; salinity: number; potential_density: number }[];
   provenance?: { source: string; qc: string };
 };
 
-export const locations: Location[] = [
-  {
-    id: "atlantic",
-    name: "Central Indian Ocean",
-    region: "Equatorial Indian Ocean",
-    x: 48,
-    y: 45,
-    code: "IO-042",
-    lat: 8.5,
-    lon: 74.2,
-  },
-  {
-    id: "pacific",
-    name: "Arabian Sea",
-    region: "Western Indian Ocean",
-    x: 35,
-    y: 34,
-    code: "AS-118",
-    lat: 17.4,
-    lon: 63.8,
-  },
-  {
-    id: "southern",
-    name: "Bay of Bengal",
-    region: "Eastern Indian Ocean",
-    x: 70,
-    y: 40,
-    code: "BB-071",
-    lat: 15.2,
-    lon: 89.1,
-  },
-];
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "";
+// Available authentic marine stations
+export const locations: Location[] = getPrimaryStations().map((s) => ({
+  id: s.id,
+  name: s.name,
+  region: s.region,
+  code: s.code,
+  lat: s.lat,
+  lon: s.lon,
+  x: s.x ?? 50,
+  y: s.y ?? 50,
+  is_primary: s.is_primary,
+}));
 
 interface OceanContextType {
   selected: Location;
@@ -205,6 +172,9 @@ interface OceanContextType {
   oceanData: OceanData | null;
   dataLoading: boolean;
   validationMetrics: ValidationMetrics | null;
+  coverage: DateCoverage;
+  minDate: string;
+  maxDate: string;
   todayDate: string;
   tomorrowDate: string;
   selectedDate: string;
@@ -212,9 +182,9 @@ interface OceanContextType {
   todayDateFormatted: string;
   selectedDateFormatted: string;
   resetToToday: () => void;
-  argoProfiles: ArgoProfile[];
-  argoDetail: ArgoDetail | null;
-  setArgoDetail: (detail: ArgoDetail | null) => void;
+  argoProfiles: any[];
+  argoDetail: any | null;
+  setArgoDetail: (detail: any | null) => void;
   argoDateFrom: string;
   setArgoDateFrom: (d: string) => void;
   argoDateTo: string;
@@ -230,7 +200,7 @@ interface OceanContextType {
   provenanceSourceKey: string;
   provenanceContextPoint: any;
   handleOpenProvenance: (sourceKey: string, contextPoint?: any) => void;
-  handleArgoSelect: (profile: ArgoProfile) => void;
+  handleArgoSelect: (profile: any) => void;
   handleMapClick: (lat: number, lon: number) => void;
   exportArgo: () => void;
   formatValue: (value: number | null | undefined, decimals?: number) => string;
@@ -238,14 +208,10 @@ interface OceanContextType {
   getSalAtDepth: (targetDepth: number) => number | null | undefined;
   depthText: string;
   isNoData: boolean;
+  isFutureDate: boolean;
+  isPastDate: boolean;
+  dateAlertMessage: string | null;
   switchMarineStation: () => void;
-}
-
-function getLocalDateString(d: Date = new Date()): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
 }
 
 function formatDisplayDate(dateStr: string): string {
@@ -253,51 +219,78 @@ function formatDisplayDate(dateStr: string): string {
   const parts = dateStr.slice(0, 10).split("-");
   if (parts.length === 3) {
     const [year, month, day] = parts;
-    return `${day}-${month}-${year}`;
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const mIdx = parseInt(month, 10) - 1;
+    return `${day} ${months[mIdx] || month} ${year}`;
   }
   return dateStr;
-}
-
-function getTomorrowDateString(d: Date = new Date()): string {
-  const tomorrow = new Date(d.getTime() + 24 * 60 * 60 * 1000);
-  return getLocalDateString(tomorrow);
 }
 
 const OceanContext = createContext<OceanContextType | undefined>(undefined);
 
 export function OceanDataProvider({ children }: { children: React.ReactNode }) {
+  const coverage = useMemo(() => getDateCoverage(), []);
+  const minDate = coverage.minDate; // 2024-06-23
+  const maxDate = coverage.maxDate; // 2026-09-10
+
   const [selected, setSelected] = useState<Location>(locations[0]);
-  const [depth, setDepth] = useState<number>(500);
+  const [depth, setDepth] = useState<number>(0);
   const [mode, setMode] = useState<"2D" | "3D">("2D");
   const [metric, setMetricState] = useState<"temperature" | "salinity" | "wind">("temperature");
   const [demoRunning, setDemoRunning] = useState<boolean>(false);
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
 
-  // Dynamic Date state - dynamically based on user's current local date
-  const [todayDate] = useState<string>(() => getLocalDateString());
-  const [tomorrowDate] = useState<string>(() => getTomorrowDateString());
-  const [selectedDate, setSelectedDate] = useState<string>(() => getLocalDateString());
+  // Selected observation date: default to latest complete observation date (2026-06-23)
+  const defaultDate = "2026-06-23";
+  const [selectedDate, setSelectedDate] = useState<string>(defaultDate);
+
+  const todayDate = maxDate;
+  const tomorrowDate = "2026-09-11";
 
   const todayDateFormatted = useMemo(() => formatDisplayDate(todayDate), [todayDate]);
   const selectedDateFormatted = useMemo(() => formatDisplayDate(selectedDate), [selectedDate]);
 
   const resetToToday = () => {
-    setSelectedDate(getLocalDateString());
+    setSelectedDate(maxDate);
   };
+
+  // Date boundary checks
+  const isFutureDate = selectedDate > maxDate;
+  const isPastDate = selectedDate < minDate;
+
+  const dateAlertMessage = useMemo(() => {
+    if (isFutureDate) {
+      return `No observations available for ${formatDisplayDate(selectedDate)}. Latest available observation: ${formatDisplayDate(maxDate)}.`;
+    }
+    if (isPastDate) {
+      return `No observations available for ${formatDisplayDate(selectedDate)}. Earliest available observation: ${formatDisplayDate(minDate)}.`;
+    }
+    // Check per-variable availability
+    if (metric === "salinity" && selectedDate > coverage.variableAvailability.salinity.last_date) {
+      return `Salinity observations conclude on ${formatDisplayDate(coverage.variableAvailability.salinity.last_date)}. Showing no salinity reading for ${formatDisplayDate(selectedDate)}.`;
+    }
+    if (metric === "wind" && selectedDate > coverage.variableAvailability.wind.last_date) {
+      return `Satellite wind observations conclude on ${formatDisplayDate(coverage.variableAvailability.wind.last_date)}. Showing no wind reading for ${formatDisplayDate(selectedDate)}.`;
+    }
+    if (metric === "temperature" && selectedDate < coverage.variableAvailability.temperature.first_date) {
+      return `Temperature observations begin on ${formatDisplayDate(coverage.variableAvailability.temperature.first_date)}. Showing no temperature reading for ${formatDisplayDate(selectedDate)}.`;
+    }
+    return null;
+  }, [selectedDate, isFutureDate, isPastDate, maxDate, minDate, metric, coverage]);
 
   const argoDateFrom = selectedDate;
   const setArgoDateFrom = (d: string) => setSelectedDate(d);
   const argoDateTo = selectedDate;
   const setArgoDateTo = (d: string) => setSelectedDate(d);
 
-  // Core Ocean Observation & DL Reconstruction Data
+  // Core Ocean Observation Data
   const [oceanData, setOceanData] = useState<OceanData | null>(null);
   const [dataLoading, setDataLoading] = useState<boolean>(false);
   const [validationMetrics, setValidationMetrics] = useState<ValidationMetrics | null>(null);
 
   // In-situ Argo Profiles
-  const [argoProfiles, setArgoProfiles] = useState<ArgoProfile[]>([]);
-  const [argoDetail, setArgoDetail] = useState<ArgoDetail | null>(null);
+  const [argoProfiles, setArgoProfiles] = useState<any[]>([]);
+  const [argoDetail, setArgoDetail] = useState<any | null>(null);
   const [argoParameter, setArgoParameter] = useState("temperature");
 
   const setMetric = (m: "temperature" | "salinity" | "wind") => {
@@ -305,7 +298,7 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     setArgoParameter(m === "wind" ? "wind" : m);
   };
 
-  // Advanced Analysis & Prediction Data
+  // Prediction & Historical Data
   const [forecastData, setForecastData] = useState<ForecastResponse | null>(null);
   const [historicalData, setHistoricalData] = useState<HistoricalResponse | null>(null);
   const [subsurfaceData, setSubsurfaceData] = useState<SubsurfaceResponse | null>(null);
@@ -313,7 +306,7 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
 
   // Provenance Modal State
   const [provenanceModalOpen, setProvenanceModalOpen] = useState(false);
-  const [provenanceSourceKey, setProvenanceSourceKey] = useState("argo");
+  const [provenanceSourceKey, setProvenanceSourceKey] = useState("glorys");
   const [provenanceContextPoint, setProvenanceContextPoint] = useState<any>(null);
 
   const handleOpenProvenance = (sourceKey: string, contextPoint?: any) => {
@@ -322,145 +315,92 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     setProvenanceModalOpen(true);
   };
 
-  const depthText = useMemo(() => `${depth} m`, [depth]);
+  const depthText = useMemo(() => (depth === 0 ? "Surface (0.49 m)" : `${depth} m`), [depth]);
 
-  // Fetch observation and AI inference for active coordinate
+  // Synchronize observation state whenever selected coordinate OR selected date changes
   useEffect(() => {
     const lat = selected.lat ?? 8.5;
     const lon = selected.lon ?? 74.2;
 
     setDataLoading(true);
 
-    if (API_URL) {
-      fetch(`${API_URL}/predict?lat=${lat}&lon=${lon}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => setOceanData(data || getPrediction(lat, lon)))
-        .catch(() => setOceanData(getPrediction(lat, lon)))
-        .finally(() => setDataLoading(false));
-
-      fetch(`${API_URL}/api/forecast/2day?lat=${lat}&lon=${lon}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => setForecastData(data || getForecast(lat, lon)))
-        .catch(() => setForecastData(getForecast(lat, lon)));
-
-      fetch(`${API_URL}/api/historical?lat=${lat}&lon=${lon}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => setHistoricalData(data || getHistorical(lat, lon)))
-        .catch(() => setHistoricalData(getHistorical(lat, lon)));
-
-      fetch(`${API_URL}/api/analysis/subsurface?lat=${lat}&lon=${lon}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data) => setSubsurfaceData(data || getSubsurface(lat, lon)))
-        .catch(() => setSubsurfaceData(getSubsurface(lat, lon)));
-    } else {
-      setOceanData(getPrediction(lat, lon));
-      setForecastData(getForecast(lat, lon));
-      setHistoricalData(getHistorical(lat, lon));
-      setSubsurfaceData(getSubsurface(lat, lon));
+    if (isFutureDate || isPastDate) {
+      setOceanData({
+        status: "no_data",
+        coordinates: { lat, lon },
+        nearest_grid: { lat, lon },
+        surface_temp: null,
+        subsurface_temp: null,
+        bottom_temp: null,
+        salinity: null,
+        wind_speed: null,
+        sea_level: null,
+        current_speed: null,
+        current_direction: null,
+        mld: null,
+        temperature_profile: [],
+        model_profile: [],
+        reference_profile: [],
+        provenance: {
+          source: "CMEMS Real Ocean Dataset Boundary",
+          observation_date: selectedDate,
+          qc_status: "Outside dataset coverage",
+        },
+      });
+      setHistoricalData(null);
+      setSubsurfaceData(null);
       setDataLoading(false);
-    }
-  }, [selected]);
-
-  // Fetch benchmark validation & data quality
-  useEffect(() => {
-    if (API_URL) {
-      fetch(`${API_URL}/validation`)
-        .then((res) => res.json())
-        .then((data) => setValidationMetrics(data?.metrics || (getValidation() as any)?.metrics))
-        .catch(() => setValidationMetrics((getValidation() as any)?.metrics));
-
-      fetch(`${API_URL}/api/data-quality`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data?.status === "success") setDataQualityData(data.datasets);
-          else setDataQualityData((getDataQuality() as any)?.datasets);
-        })
-        .catch(() => setDataQualityData((getDataQuality() as any)?.datasets));
-    } else {
-      setValidationMetrics((getValidation() as any)?.metrics);
-      setDataQualityData((getDataQuality() as any)?.datasets);
-    }
-  }, []);
-
-  // Load In-situ Argo Float list strictly synchronized with Date + Parameter + Depth
-  useEffect(() => {
-    if (metric === "wind") {
-      // Argo floats do not measure wind
-      setArgoProfiles([]);
       return;
     }
 
-    if (API_URL) {
-      const query = new URLSearchParams({
-        date: selectedDate,
-        parameter: metric,
-        depth: String(depth),
-        limit: "2500",
-      });
-      fetch(`${API_URL}/argo/profiles?${query}`)
-        .then((res) => res.json())
-        .then((data) => {
-          const profs =
-            data?.profiles && data.profiles.length
-              ? data.profiles
-              : getArgoProfiles(selectedDate, metric, depth);
-          setArgoProfiles(profs);
-        })
-        .catch(() => setArgoProfiles(getArgoProfiles(selectedDate, metric, depth)));
-    } else {
-      setArgoProfiles(getArgoProfiles(selectedDate, metric, depth));
-    }
-  }, [selectedDate, metric, depth]);
+    const pred = getPrediction(lat, lon, selectedDate);
+    const hist = getHistorical(lat, lon, selectedDate);
+    const sub = getSubsurface(lat, lon, selectedDate);
+    const fc = getForecast(lat, lon);
 
-  // Load full in-situ Argo CTD profile when float marker clicked
-  const handleArgoSelect = (profile: ArgoProfile) => {
-    if (API_URL) {
-      fetch(`${API_URL}/argo/profile/${profile.platform}/${profile.cycle}`)
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && !data.error) setArgoDetail(data);
-          else setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any);
-        })
-        .catch(() => setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any));
-    } else {
-      setArgoDetail(getArgoSingleProfile(profile.platform, profile.cycle) as any);
-    }
+    setOceanData(pred as any);
+    setHistoricalData(hist as any);
+    setSubsurfaceData(sub as any);
+    setForecastData(fc as any);
+    setDataLoading(false);
+  }, [selected, selectedDate, isFutureDate, isPastDate]);
+
+  // Load benchmark validation & quality data
+  useEffect(() => {
+    setValidationMetrics((getValidation() as any)?.metrics);
+    setDataQualityData((getDataQuality() as any)?.summary);
+  }, []);
+
+  const handleArgoSelect = (profile: any) => {
+    setArgoDetail(null);
   };
 
   const exportArgo = () => {
-    if (API_URL) {
-      const query = new URLSearchParams({
-        date: selectedDate,
-        parameter: metric,
-      });
-      window.open(`${API_URL}/argo/export?${query}`, "_blank");
-    } else {
-      const profiles = getArgoProfiles(selectedDate, metric, depth, 5000);
-      if (!profiles.length) return;
-      const keys = Object.keys(profiles[0]);
-      const csv = [
-        keys.join(","),
-        ...profiles.map((p: any) => keys.map((k) => JSON.stringify(p[k] ?? "")).join(",")),
-      ].join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `argo_${selectedDate}_${metric}_${depth}m.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    // Export real observation time series for the active station
+    if (!historicalData || !historicalData.dates) return;
+    const csvRows = ["Date,Surface_Temp_C,Surface_Sal_PSU,Temp_Anomaly_C,Sal_Anomaly_PSU"];
+    historicalData.dates.forEach((d, i) => {
+      csvRows.push(
+        `${d},${historicalData.surface_temp[i] ?? ""},${historicalData.surface_sal[i] ?? ""},${historicalData.temp_anomaly?.[i] ?? ""},${historicalData.sal_anomaly?.[i] ?? ""}`
+      );
+    });
+    const blob = new Blob([csvRows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ocean_embed_${selected.id}_${selectedDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleMapClick = (lat: number, lon: number) => {
-    setArgoDetail(null);
     setSelected({
-      id: `clicked-${lat.toFixed(3)}-${lon.toFixed(3)}`,
-      name: "Custom ocean query",
-      region: "User map selection",
+      id: `clicked-${lat.toFixed(2)}-${lon.toFixed(2)}`,
+      name: `Marine Station (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`,
+      region: "Custom Map Coordinate",
       x: 50,
       y: 50,
-      code: `${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E`,
+      code: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`,
       lat,
       lon,
     });
@@ -470,49 +410,25 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     value == null || !Number.isFinite(value) ? "—" : value.toFixed(decimals);
 
   const getTempAtDepth = (targetDepth: number) => {
-    const prof = oceanData?.model_profile?.length
-      ? oceanData.model_profile
-      : oceanData?.temperature_profile ?? [];
-    if (!prof.length) return targetDepth === 0 ? oceanData?.surface_temp : oceanData?.subsurface_temp;
-    let closest = prof[0];
-    let minDiff = Math.abs(closest.depth - targetDepth);
-    for (const pt of prof) {
-      const diff = Math.abs(pt.depth - targetDepth);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = pt;
-      }
-    }
-    return closest ? closest.temperature : null;
+    if (targetDepth <= 1) return oceanData?.surface_temp;
+    return null; // Subsurface depth unobserved in surface dataset
   };
 
   const getSalAtDepth = (targetDepth: number) => {
-    const prof = oceanData?.observed_salinity_profile?.length
-      ? oceanData.observed_salinity_profile
-      : oceanData?.salinity_profile ?? [];
-    if (!prof.length) return oceanData?.salinity;
-    let closest = prof[0];
-    let minDiff = Math.abs(closest.depth - targetDepth);
-    for (const pt of prof) {
-      const diff = Math.abs(pt.depth - targetDepth);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = pt;
-      }
-    }
-    return closest ? closest.salinity : oceanData?.salinity;
+    if (targetDepth <= 1) return oceanData?.salinity;
+    return null; // Subsurface depth unobserved in surface dataset
   };
 
   const runPipelineDemo = () => {
     setDemoRunning(true);
-    window.setTimeout(() => setDemoRunning(false), 2000);
+    window.setTimeout(() => setDemoRunning(false), 1500);
   };
 
   const switchMarineStation = () => {
     setSelected(locations[(locations.indexOf(selected) + 1) % locations.length]);
   };
 
-  const isNoData = oceanData?.status === "no_data";
+  const isNoData = oceanData?.status === "no_data" || isFutureDate || isPastDate;
 
   return (
     <OceanContext.Provider
@@ -532,6 +448,9 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
         oceanData,
         dataLoading,
         validationMetrics,
+        coverage,
+        minDate,
+        maxDate,
         todayDate,
         tomorrowDate,
         selectedDate,
@@ -539,8 +458,8 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
         todayDateFormatted,
         selectedDateFormatted,
         resetToToday,
-        argoProfiles,
-        argoDetail,
+        argoProfiles: [],
+        argoDetail: null,
         setArgoDetail,
         argoDateFrom,
         setArgoDateFrom,
@@ -565,6 +484,9 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
         getSalAtDepth,
         depthText,
         isNoData,
+        isFutureDate,
+        isPastDate,
+        dateAlertMessage,
         switchMarineStation,
       }}
     >

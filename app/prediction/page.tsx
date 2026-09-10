@@ -72,14 +72,14 @@ export default function PredictionPage() {
                 <span style={{ fontSize: "10px", color: "var(--muted-foreground)" }}>
                   TOMORROW&apos;S 500M TEMPERATURE (T+1)
                 </span>
-                <strong style={{ display: "block", fontSize: "28px", color: "#45b7ff", marginTop: "6px" }}>
-                  {formatValue(forecastData.temperature["t+1"]?.["500m"].value)}°C
+                <strong style={{ display: "block", fontSize: forecastData.temperature["t+1"]?.["500m"]?.value != null ? "28px" : "18px", color: forecastData.temperature["t+1"]?.["500m"]?.value != null ? "#45b7ff" : "#94a3b8", marginTop: "6px" }}>
+                  {forecastData.temperature["t+1"]?.["500m"]?.value != null ? `${formatValue(forecastData.temperature["t+1"]?.["500m"].value)}°C` : "Unobserved in Dataset"}
                 </strong>
                 <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
-                  1-sigma uncertainty: ±{formatValue(forecastData.temperature["t+1"]?.["500m"].uncertainty_1sigma)}°C
+                  {forecastData.temperature["t+1"]?.["500m"]?.uncertainty_1sigma != null ? `1-sigma uncertainty: ±${formatValue(forecastData.temperature["t+1"]?.["500m"].uncertainty_1sigma)}°C` : "Subsurface CTD profiles required"}
                 </div>
                 <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
-                  Last Observed: <strong>{formatValue(forecastData.temperature["t+1"]?.observed_last["500m"])}°C</strong>
+                  Last Observed: <strong>{forecastData.temperature["t+1"]?.observed_last?.["500m"] != null ? `${formatValue(forecastData.temperature["t+1"]?.observed_last["500m"])}°C` : "— (0.49 m surface only)"}</strong>
                 </div>
               </div>
 

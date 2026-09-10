@@ -106,14 +106,13 @@ export default function SubsurfacePage() {
   const currentTemp = getTempAtDepth(depth);
   const currentSal = getSalAtDepth(depth);
 
-  // Max depth of available profile
+  // Observed depth range based exclusively on authentic dataset
   const maxProfileDepth = useMemo(() => {
-    let maxD = 1000;
     if (subsurfaceData?.ts_diagram?.length) {
-      const d = subsurfaceData.ts_diagram[subsurfaceData.ts_diagram.length - 1].depth;
-      if (d > maxD) maxD = Math.ceil(d);
+      const maxD = Math.max(...subsurfaceData.ts_diagram.map((pt) => pt.depth));
+      return Number(maxD.toFixed(2));
     }
-    return maxD;
+    return 0.49;
   }, [subsurfaceData]);
 
   // Isopycnal lines for T-S Diagram (potential density sigma_theta contours)
@@ -591,14 +590,15 @@ export default function SubsurfacePage() {
           <div>
             <SectionLabel>Vertical Stratification Architecture</SectionLabel>
             <h2 style={{ fontSize: "17px", margin: "4px 0 0" }}>
-              Vertical Water Column: Surface → Mixed Layer → Thermocline → Halocline → Deep Ocean
+              Hydrographic Depth Profile: Surface Layer (0.49 m) · Subsurface Strata Unobserved
             </h2>
           </div>
-          <div style={{ display: "flex", gap: "10px", alignItems: "center", fontSize: "11px", flexWrap: "wrap" }}>
-            <span style={{ color: "#bce9d2" }}>● Mixed Layer (0–{mixedLayerDepth ?? "—"}m)</span>
-            <span style={{ color: "#ffd166" }}>━ Thermocline ({thermoclineDepth ?? "—"}m)</span>
-            <span style={{ color: "#45b7ff" }}>━ Halocline ({haloclineDepth ?? "—"}m)</span>
-            <span style={{ color: "#709094" }}>■ Deep Ocean ({maxProfileDepth}m)</span>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", fontSize: "11px", flexWrap: "wrap" }}>
+            <span style={{ color: "#63d9d0", fontWeight: 600 }}>● Surface Layer: 0.49 m (Observed)</span>
+            <span style={{ color: "#709094" }}>○ Mixed Layer: Not in dataset</span>
+            <span style={{ color: "#709094" }}>○ Thermocline: Not in dataset</span>
+            <span style={{ color: "#709094" }}>○ Halocline: Not in dataset</span>
+            <span style={{ color: "#709094" }}>○ Deep Ocean: Unobserved</span>
           </div>
         </div>
 
@@ -609,7 +609,7 @@ export default function SubsurfacePage() {
             position: "relative",
             width: "100%",
             height: "220px",
-            background: "linear-gradient(180deg, #164656 0%, #0d2f3d 15%, #0a232f 35%, #071922 70%, #030d12 100%)",
+            background: "linear-gradient(180deg, #164656 0%, #0d2f3d 25%, #0a232f 50%, #071922 80%, #030d12 100%)",
             border: "1px solid #21404a",
             borderRadius: "8px",
             overflow: "hidden",
@@ -620,25 +620,25 @@ export default function SubsurfacePage() {
           {/* Depth Axis Column */}
           <div
             style={{
-              width: "60px",
+              width: "80px",
               borderRight: "1px solid rgba(33, 64, 74, 0.8)",
               background: "rgba(4, 15, 22, 0.7)",
               position: "relative",
               display: "flex",
               flexDirection: "column",
               justifyContent: "space-between",
-              padding: "8px 6px",
+              padding: "10px 8px",
               fontFamily: "monospace",
               fontSize: "10px",
               color: "#709094",
               userSelect: "none",
             }}
           >
-            <span>0 m</span>
-            <span>100 m</span>
-            <span>200 m</span>
-            <span>500 m</span>
-            <span>{maxProfileDepth} m</span>
+            <span style={{ color: "#63d9d0", fontWeight: "bold" }}>0.00 m</span>
+            <span style={{ color: "#63d9d0", fontWeight: "bold" }}>0.49 m</span>
+            <span style={{ color: "#475569" }}>100 m (—)</span>
+            <span style={{ color: "#475569" }}>500 m (—)</span>
+            <span style={{ color: "#475569" }}>1000 m (—)</span>
           </div>
 
           {/* Water Column Area */}

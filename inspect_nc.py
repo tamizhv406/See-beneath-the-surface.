@@ -2,9 +2,9 @@ import os
 import xarray as xr
 
 files = [
-    r"C:\Users\dayaa\Downloads\Telegram Desktop\cmems_mod_glo_phy_my_0.083deg_P1D-m_1788942953020.nc",
-    r"C:\Users\dayaa\Downloads\Telegram Desktop\cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m_1788942909084.nc",
-    r"C:\Users\dayaa\Downloads\Telegram Desktop\cmems_obs_wind_glo_phy_nrt_l3_hy2c_hscat_des_0_5deg_P1D_i_1788943897677.nc"
+    r"c:\Users\tamiz\Downloads\cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m_1788942909084.nc",
+    r"c:\Users\tamiz\Downloads\cmems_mod_glo_phy_my_0.083deg_P1D-m_1788942953020.nc",
+    r"c:\Users\tamiz\Downloads\cmems_obs-wind_glo_phy_nrt_l3-hy2c-hscat-des-0.5deg_P1D-i_1788943897677.nc"
 ]
 
 for f in files:

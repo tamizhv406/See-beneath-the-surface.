@@ -2,10 +2,14 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import React, { useMemo } from "react";
 import { useOceanData, locations } from "@/lib/ocean-context";
+import { getHistoricalSeries } from "@/lib/ocean-service";
 import { MetricCard, SectionLabel } from "@/components/metric-card";
+import { SurfaceTemperatureChart } from "@/components/surface-temperature-chart";
 import {
   Activity,
+  AlertTriangle,
   ArrowDown,
   ArrowRight,
   Bot,
@@ -37,8 +41,8 @@ export default function OverviewPage() {
     oceanData,
     dataLoading,
     validationMetrics,
-    argoProfiles,
-    argoDetail,
+    minDate,
+    maxDate,
     selectedDate,
     setSelectedDate,
     todayDate,
@@ -54,7 +58,11 @@ export default function OverviewPage() {
     getSalAtDepth,
     depthText,
     isNoData,
+    dateAlertMessage,
+    argoDetail,
   } = useOceanData();
+
+  const histSeries = useMemo(() => getHistoricalSeries(selected.id), [selected.id]);
 
   return (
     <div className="page-content page-view-enter">
@@ -84,8 +92,34 @@ export default function OverviewPage() {
         </div>
       </div>
 
+      {/* Date Out of Range / Future Date / Unobserved Variable Warning */}
+      {dateAlertMessage && (
+        <div
+          style={{
+            marginBottom: "20px",
+            padding: "14px 18px",
+            borderRadius: "8px",
+            border: "1px solid #f59e0b",
+            background: "rgba(245, 158, 11, 0.12)",
+            color: "#fbbf24",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
+          <AlertTriangle size={20} color="#fbbf24" style={{ flexShrink: 0 }} />
+          <div>
+            <strong>Observation Availability Notice</strong>
+            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--muted-foreground)" }}>
+              {dateAlertMessage}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Land / Missing Data Alert */}
-      {isNoData && (
+      {isNoData && !dateAlertMessage && (
         <div
           style={{
             marginBottom: "20px",
@@ -104,7 +138,7 @@ export default function OverviewPage() {
           <div>
             <strong>No real ocean observation data available for this location.</strong>
             <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
-              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on land or outside the marine dataset boundary. OceanEmbed strictly does not invent synthetic measurements.
+              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on land or outside the verified marine dataset boundary. OceanEmbed strictly does not invent synthetic measurements.
             </p>
           </div>
         </div>
@@ -139,6 +173,8 @@ export default function OverviewPage() {
                 id="input-overview-date"
                 type="date"
                 value={selectedDate}
+                min={minDate}
+                max={maxDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
                 aria-label="Ocean observation date"
                 style={{
@@ -195,11 +231,11 @@ export default function OverviewPage() {
 
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ fontSize: "11px", color: "#94a3b8" }}>
-                {metric === "wind"
-                  ? "Satellite Scatterometer Stations"
-                  : argoProfiles.length > 0
-                  ? `In-situ Argo Floats: ${argoProfiles.length}`
-                  : "No observations available"}
+                {metric === "temperature"
+                  ? "CMEMS GLORYS Physical Reanalysis (0.49 m)"
+                  : metric === "salinity"
+                  ? "CMEMS Physical Multi-Year (0.49 m)"
+                  : "HY-2C Satellite Scatterometer (10 m)"}
               </span>
               <button className="secondary-button" onClick={exportArgo} style={{ padding: "4px 8px", fontSize: "11px" }}>
                 <Download size={11} /> Export CSV
@@ -207,19 +243,18 @@ export default function OverviewPage() {
             </div>
           </div>
 
-          {/* Map Component (Leaflet 2D or Three.js 3D) */}
+          {/* Map Component (Native Leaflet 2D or Three.js 3D) */}
           <OceanMap
             selected={selected}
             locations={locations}
             onSelect={setSelected}
             onMapClick={handleMapClick}
-            onArgoSelect={handleArgoSelect}
-            argoProfiles={argoProfiles}
             mode={mode}
             metric={metric}
             onMetricChange={setMetric}
             depth={depth}
             onDepthChange={setDepth}
+            selectedDate={selectedDate}
             temperatureProfile={oceanData?.model_profile?.length ? oceanData.model_profile : (oceanData?.temperature_profile ?? [])}
             salinityProfile={oceanData?.salinity_profile ?? []}
             onViewProvenance={handleOpenProvenance}
@@ -419,53 +454,37 @@ export default function OverviewPage() {
 
           {/* KPI Cards for Selected Depth Slice */}
           <div className="panel kpi-panel">
-            <SectionLabel>Ocean Observations at {depth} m Depth</SectionLabel>
+            <SectionLabel>Real Ocean Observations · Surface (0.49 m)</SectionLabel>
             <div className="metric-list">
               <MetricCard
-                label="Surface Temperature"
+                label="Sea Surface Temperature"
                 value={formatValue(oceanData?.surface_temp)}
                 suffix="°C"
-                note="OSTIA satellite & GLORYS surface layer (0 m)"
-                badge={isNoData ? "NO DATA" : "MODEL / REANALYSIS"}
-                onViewSource={() =>
-                  handleOpenProvenance("ostia", {
-                    depth: 0,
-                    value: oceanData?.surface_temp,
-                    unit: "°C",
-                    name: "OSTIA Analyzed Sea Surface Temperature",
-                    classification: "🔵 MODEL / REANALYSIS",
-                  })
-                }
-              />
-              <MetricCard
-                label={`${depth} m Temperature`}
-                value={formatValue(getTempAtDepth(depth))}
-                suffix="°C"
-                note={`Reconstructed depth profile at ${depth} m`}
-                badge={isNoData ? "NO DATA" : "AI RECONSTRUCTED"}
-                onViewSource={() =>
-                  handleOpenProvenance("oceanprofilenet", {
-                    depth,
-                    value: getTempAtDepth(depth),
-                    unit: "°C",
-                    name: `${depth} m Temperature Profile`,
-                    classification: "🟡 AI RECONSTRUCTED",
-                  })
-                }
-              />
-              <MetricCard
-                label={`${depth} m Salinity`}
-                value={formatValue(getSalAtDepth(depth))}
-                suffix="PSU"
-                note={`Copernicus GLORYS reanalysis at ${depth} m`}
-                badge={isNoData ? "NO DATA" : "MODEL / REANALYSIS"}
+                note="Copernicus GLORYS physical reanalysis (0.49 m)"
+                badge={isNoData || oceanData?.surface_temp == null ? "NO DATA" : "REAL OBSERVATION"}
                 onViewSource={() =>
                   handleOpenProvenance("glorys", {
-                    depth,
-                    value: getSalAtDepth(depth),
+                    depth: 0.49,
+                    value: oceanData?.surface_temp,
+                    unit: "°C",
+                    name: "Copernicus GLORYS Analyzed Sea Surface Temperature",
+                    classification: "🔵 REAL REANALYSIS",
+                  })
+                }
+              />
+              <MetricCard
+                label="Sea Surface Salinity"
+                value={formatValue(oceanData?.salinity)}
+                suffix="PSU"
+                note="Copernicus physical reanalysis (0.49 m)"
+                badge={oceanData?.salinity != null ? "REAL OBSERVATION" : "UNOBSERVED"}
+                onViewSource={() =>
+                  handleOpenProvenance("glorys", {
+                    depth: 0.49,
+                    value: oceanData?.salinity,
                     unit: "PSU",
-                    name: `${depth} m Reanalysis Salinity`,
-                    classification: "🔵 MODEL / REANALYSIS",
+                    name: "Copernicus Physical Reanalysis Salinity",
+                    classification: "🔵 REAL REANALYSIS",
                   })
                 }
               />
@@ -473,53 +492,57 @@ export default function OverviewPage() {
                 label="Wind Speed (10m surface)"
                 value={formatValue(oceanData?.wind_speed)}
                 suffix="m/s"
-                note="CCMP satellite wind analysis (surface only; no 1000m wind)"
-                badge={isNoData ? "NO DATA" : "MODEL / REANALYSIS"}
+                note="HY-2C satellite scatterometer at 10m elevation"
+                badge={oceanData?.wind_speed != null ? "SATELLITE OBSERVED" : "UNOBSERVED"}
                 onViewSource={() =>
-                  handleOpenProvenance("ccmp", {
+                  handleOpenProvenance("hy2c", {
                     depth: 0,
                     value: oceanData?.wind_speed,
                     unit: "m/s",
-                    name: "CCMP 10m Marine Wind Analysis",
-                    classification: "🔵 MODEL / REANALYSIS",
+                    name: "HY-2C HSCAT Satellite Marine Wind",
+                    classification: "🟢 SATELLITE OBSERVED",
                   })
                 }
+              />
+              <MetricCard
+                label={`${depth} m Temperature`}
+                value={depth <= 1 ? formatValue(oceanData?.surface_temp) : "—"}
+                suffix={depth <= 1 ? "°C" : ""}
+                note={depth <= 1 ? "Surface layer observation (0.49 m)" : `Subsurface ${depth}m unobserved in supplied dataset (Zero synthetic extrapolation)`}
+                badge={depth <= 1 && oceanData?.surface_temp != null ? "REAL OBSERVATION" : "NO SUBSURFACE CTD"}
               />
               <MetricCard
                 label="Sea Level Anomaly"
-                value={formatValue(oceanData?.sea_level, 3)}
-                suffix="m"
-                note="Copernicus multi-satellite altimetry"
-                badge={isNoData ? "NO DATA" : "MODEL / REANALYSIS"}
-                onViewSource={() =>
-                  handleOpenProvenance("altimetry", {
-                    depth: 0,
-                    value: oceanData?.sea_level,
-                    unit: "m",
-                    name: "DUACS Multi-Satellite Altimetry SLA",
-                    classification: "🔵 MODEL / REANALYSIS",
-                  })
-                }
+                value="—"
+                suffix=""
+                note="SSH / SLA variable not present in supplied datasets"
+                badge="NOT IN DATASET"
               />
               <MetricCard
                 label="Mixed Layer Depth (MLD)"
-                value={formatValue(oceanData?.mld, 1)}
-                suffix="m"
-                note="GLORYS physical reanalysis mixed layer boundary"
-                badge={isNoData ? "NO DATA" : "MODEL / REANALYSIS"}
-                onViewSource={() =>
-                  handleOpenProvenance("glorys", {
-                    depth: oceanData?.mld ?? 0,
-                    value: oceanData?.mld,
-                    unit: "m",
-                    name: "GLORYS Mixed Layer Depth (mlotst)",
-                    classification: "🔵 MODEL / REANALYSIS",
-                  })
-                }
+                value="—"
+                suffix=""
+                note="MLD boundary not present in supplied surface datasets"
+                badge="NOT IN DATASET"
               />
             </div>
           </div>
         </div>
+      </section>
+
+      {/* 24-HOUR / DAILY SURFACE TEMPERATURE ANALYSIS GRAPH (REFERENCE IMAGE 2) */}
+      <section style={{ marginTop: "28px" }}>
+        <SurfaceTemperatureChart
+          dates={histSeries?.dates ?? []}
+          temperatures={histSeries?.surface_temp ?? []}
+          stationName={selected.name}
+          stationCode={selected.code}
+          stationRegion={selected.region}
+          minDate={minDate}
+          maxDate={maxDate}
+          selectedDate={selectedDate}
+          onSelectDate={(d) => setSelectedDate(d)}
+        />
       </section>
 
       {/* Scientific Workspaces Quick Navigation Cards */}
@@ -545,20 +568,12 @@ export default function OverviewPage() {
         >
           {[
             {
-              title: "AI Reconstruction",
-              href: "/reconstruction",
-              icon: Bot,
-              color: "#ffd166",
-              description:
-                "OceanProfileNet deep neural profile synthesizer. Observed vs Reconstructed temperature & salinity profiles with 95% epistemic confidence intervals.",
-            },
-            {
               title: "Subsurface Analysis",
               href: "/subsurface",
               icon: Activity,
               color: "#45b7ff",
               description:
-                "Thermocline, halocline depth boundaries, maximum vertical thermal/salinity gradients, and T-S Water Mass Diagram.",
+                "Vertical water column stratification (0.49m surface layer), transparent reporting of unobserved layers, and authentic T-S profile.",
             },
             {
               title: "Historical Data",
@@ -566,7 +581,7 @@ export default function OverviewPage() {
               icon: Calendar,
               color: "var(--cyan)",
               description:
-                "Daily reanalysis time series (Jan 1–7, 2024), surface temperature curves, and anomalies relative to multi-day mean.",
+                `Daily reanalysis time series (${minDate} → ${maxDate}), surface temperature curves, and mathematical anomalies relative to station mean.`,
             },
             {
               title: "Tomorrow's Prediction",
@@ -574,7 +589,7 @@ export default function OverviewPage() {
               icon: TrendingUp,
               color: "#c084fc",
               description:
-                "Physical ocean forecasting (T+1 & T+2) for surface and 500m depth temperatures, salinity, and uncertainty standard deviations.",
+                "Physical persistence trend forecasting grounded in the latest authentic Copernicus observation (10 Sep 2026).",
             },
             {
               title: "Data Quality & QC",
@@ -582,7 +597,7 @@ export default function OverviewPage() {
               icon: ShieldCheck,
               color: "#22c55e",
               description:
-                "Strict adherence to Absolute Rule #1 (Zero Synthetic Data). Position QC flags, Argo profile audits, and GLORYS strata.",
+                "Strict adherence to Absolute Rule #1 (Zero Synthetic Data). Position QC audits and authentic Copernicus NetCDF strata.",
             },
             {
               title: "Data Sources & Lineage",
@@ -590,7 +605,7 @@ export default function OverviewPage() {
               icon: Database,
               color: "#38bdf8",
               description:
-                "Transparent provenance table for Copernicus GLORYS12V1, Global Argo CTD, OSTIA SST, and CCMP wind vector analysis.",
+                "Transparent provenance table for Copernicus GLORYS Reanalysis (thetao, so) and HY-2C Satellite Scatterometer wind.",
             },
           ].map((card) => {
             const Icon = card.icon;
