@@ -264,24 +264,21 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     const lat = selected.lat ?? 8.5;
     const lon = selected.lon ?? 74.2;
     if (!isOceanCoordinate(lat, lon)) {
-      return `Land Coordinate Selected (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E) — Copernicus Marine Service strictly measures oceanic bodies of water. Land areas contain no sea surface temperature, salinity, or marine wind observations.`;
+      return `Land Coordinate Selected (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E): Data Unavailable. (Terrestrial land surface observations may be integrated in a future feature expansion). Copernicus Marine Service provides physical ocean observations (Temperature, Salinity, Wind) exclusively for oceanic waters.`;
     }
 
-    if (isFutureDate) {
-      return `No observations available for ${formatDisplayDate(selectedDate)}. Latest available observation: ${formatDisplayDate(maxDate)}.`;
-    }
-    if (isPastDate) {
-      return `No observations available for ${formatDisplayDate(selectedDate)}. Earliest available observation: ${formatDisplayDate(minDate)}.`;
+    if (isFutureDate || isPastDate) {
+      return `No observation data available for ${selectedDate}. Real Copernicus observations are available strictly from 2024-06-23 to 2026-09-10 (Temperature: 2024-09-09 → 2026-09-10 | Salinity: 2024-06-23 → 2026-06-23 | Wind: 2024-07-09 → 2026-09-07). Please choose a date within this operational window.`;
     }
     // Check per-variable availability
     if (metric === "salinity" && selectedDate > coverage.variableAvailability.salinity.last_date) {
-      return `Salinity observations conclude on ${formatDisplayDate(coverage.variableAvailability.salinity.last_date)}. Showing no salinity reading for ${formatDisplayDate(selectedDate)}.`;
+      return `Salinity (Salt) observations conclude on ${coverage.variableAvailability.salinity.last_date}. Data available: 2024-06-23 to 2026-06-23. (Temperature & Wind remain active for ${selectedDate}).`;
     }
     if (metric === "wind" && selectedDate > coverage.variableAvailability.wind.last_date) {
-      return `Satellite wind observations conclude on ${formatDisplayDate(coverage.variableAvailability.wind.last_date)}. Showing no wind reading for ${formatDisplayDate(selectedDate)}.`;
+      return `Satellite Wind observations conclude on ${coverage.variableAvailability.wind.last_date}. Data available: 2024-07-09 to 2026-09-07. (Temperature remains active for ${selectedDate}).`;
     }
     if (metric === "temperature" && selectedDate < coverage.variableAvailability.temperature.first_date) {
-      return `Temperature observations begin on ${formatDisplayDate(coverage.variableAvailability.temperature.first_date)}. Showing no temperature reading for ${formatDisplayDate(selectedDate)}.`;
+      return `Surface Temperature observations begin on ${coverage.variableAvailability.temperature.first_date}. Data available: 2024-09-09 to 2026-09-10. (Salinity & Wind are active for ${selectedDate}).`;
     }
     return null;
   }, [selectedDate, selected, isFutureDate, isPastDate, maxDate, minDate, metric, coverage]);

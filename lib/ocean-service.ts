@@ -187,7 +187,36 @@ export function findClosestStation(lat: number, lon: number): { station: MarineS
 }
 
 export function getStationObservation(stationId: string, targetDate?: string): StationObservation | null {
-  const loc = locationsDict[stationId];
+  let loc = locationsDict[stationId];
+  let customStation: MarineStation | null = null;
+
+  // If clicked coordinate, resolve dynamically
+  if (!loc && stationId.startsWith('clicked-')) {
+    const parts = stationId.replace('clicked-', '').split('-');
+    if (parts.length >= 2) {
+      const lat = parseFloat(parts[0]);
+      const lon = parseFloat(parts[1]);
+      if (!isNaN(lat) && !isNaN(lon)) {
+        if (!isOceanCoordinate(lat, lon)) {
+          return null; // Strictly reject land
+        }
+        const closest = findClosestStation(lat, lon);
+        if (closest && closest.distanceDeg <= 4.0) {
+          loc = locationsDict[closest.station.id];
+          customStation = {
+            id: stationId,
+            name: `Marine Station (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`,
+            region: closest.station.region,
+            code: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`,
+            lat,
+            lon,
+            is_primary: false,
+          };
+        }
+      }
+    }
+  }
+
   if (!loc) return null;
 
   const date = targetDate || metadata.max_date;
@@ -203,16 +232,18 @@ export function getStationObservation(stationId: string, targetDate?: string): S
 
   const hasAnyObservation = temp != null || sal != null || wind != null;
 
+  const st = customStation || {
+    id: loc.id,
+    name: loc.name,
+    region: loc.region,
+    code: loc.code,
+    lat: loc.lat,
+    lon: loc.lon,
+    is_primary: loc.is_primary,
+  };
+
   return {
-    station: {
-      id: loc.id,
-      name: loc.name,
-      region: loc.region,
-      code: loc.code,
-      lat: loc.lat,
-      lon: loc.lon,
-      is_primary: loc.is_primary,
-    },
+    station: st,
     date,
     status: hasAnyObservation ? 'verified' : 'unobserved',
     isNoData: !hasAnyObservation,
@@ -316,7 +347,36 @@ export function getHistoricalSeries(
     valid_count: number;
   };
 } | null {
-  const loc = locationsDict[stationId];
+  let loc = locationsDict[stationId];
+  let customStation: MarineStation | null = null;
+
+  // If clicked coordinate, resolve dynamically
+  if (!loc && stationId.startsWith('clicked-')) {
+    const parts = stationId.replace('clicked-', '').split('-');
+    if (parts.length >= 2) {
+      const lat = parseFloat(parts[0]);
+      const lon = parseFloat(parts[1]);
+      if (!isNaN(lat) && !isNaN(lon)) {
+        if (!isOceanCoordinate(lat, lon)) {
+          return null; // Strictly reject land
+        }
+        const closest = findClosestStation(lat, lon);
+        if (closest && closest.distanceDeg <= 4.0) {
+          loc = locationsDict[closest.station.id];
+          customStation = {
+            id: stationId,
+            name: `Marine Station (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E)`,
+            region: closest.station.region,
+            code: `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`,
+            lat,
+            lon,
+            is_primary: false,
+          };
+        }
+      }
+    }
+  }
+
   if (!loc) return null;
 
   let endIdx = datesList.length - 1;

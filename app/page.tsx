@@ -92,28 +92,66 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {/* Date Out of Range / Future Date / Unobserved Variable Warning */}
+      {/* Date Out of Range / Future Date / Unobserved Variable / Land Warning */}
       {dateAlertMessage && (
         <div
           style={{
             marginBottom: "20px",
-            padding: "14px 18px",
+            padding: "16px 20px",
             borderRadius: "8px",
             border: "1px solid #f59e0b",
             background: "rgba(245, 158, 11, 0.12)",
             color: "#fbbf24",
             fontSize: "13px",
             display: "flex",
-            alignItems: "center",
-            gap: "12px",
+            alignItems: "flex-start",
+            gap: "14px",
           }}
         >
-          <AlertTriangle size={20} color="#fbbf24" style={{ flexShrink: 0 }} />
-          <div>
-            <strong>Observation Availability Notice</strong>
-            <p style={{ margin: "2px 0 0", fontSize: "12px", color: "var(--muted-foreground)" }}>
+          <AlertTriangle size={22} color="#fbbf24" style={{ flexShrink: 0, marginTop: "2px" }} />
+          <div style={{ flex: 1 }}>
+            <strong style={{ fontSize: "14px", display: "block" }}>Observation Availability &amp; Domain Notice</strong>
+            <p style={{ margin: "4px 0 0", fontSize: "12px", color: "var(--muted-foreground)", lineHeight: "1.5" }}>
               {dateAlertMessage}
             </p>
+            <div style={{ display: "flex", gap: "10px", marginTop: "10px", flexWrap: "wrap" }}>
+              {dateAlertMessage.includes("Land Coordinate") && (
+                <button
+                  type="button"
+                  onClick={() => setSelected(locations[0])}
+                  style={{
+                    background: "var(--cyan)",
+                    color: "#000",
+                    border: 0,
+                    borderRadius: "4px",
+                    padding: "4px 12px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Switch to Central Indian Ocean Station
+                </button>
+              )}
+              {(dateAlertMessage.includes("outside") || dateAlertMessage.includes("No observation data")) && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate("2026-06-23")}
+                  style={{
+                    background: "#fbbf24",
+                    color: "#000",
+                    border: 0,
+                    borderRadius: "4px",
+                    padding: "4px 12px",
+                    fontSize: "11px",
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  Reset to Verified Date (2026-06-23)
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -136,9 +174,9 @@ export default function OverviewPage() {
         >
           <span style={{ fontSize: "18px" }}>⚠️</span>
           <div>
-            <strong>No real ocean observation data available for this location.</strong>
+            <strong>Data Unavailable: Land Coordinate or Outside Marine Domain</strong>
             <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
-              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on land or outside the verified marine dataset boundary. OceanEmbed strictly does not invent synthetic measurements.
+              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on continental landmass. Terrestrial land surface monitoring may be supported in a future feature expansion. OceanEmbed strictly uses real Copernicus ocean measurements.
             </p>
           </div>
         </div>
