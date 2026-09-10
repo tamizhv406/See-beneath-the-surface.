@@ -1,17 +1,3 @@
-{
-  "total_samples": 95,
-  "train_samples": 84,
-  "val_samples": 7,
-  "test_samples": 4,
-  "train_platforms": 16,
-  "val_platforms": 3,
-  "test_platforms": 4,
-  "n_depth_levels": 35,
-  "n_input_features": 8,
-  "best_val_mae_c": 0.669,
-  "best_val_rmse_c": 0.9829,
-  "test_mae_c": 0.7011,
-  "test_rmse_c": 0.9844,
-  "test_r2": 0.9822,
-  "device": "cpu"
-}
+version https://git-lfs.github.com/spec/v1
+oid sha256:f006e6ac4d757336aa3da25b71c49fc7da42ba44f9ab45ff5d55725082985dcf
+size 685

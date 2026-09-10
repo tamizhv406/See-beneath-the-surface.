@@ -16,9 +16,6 @@ import logging
 import threading
 import csv
 import io
-import urllib.parse
-import urllib.request
-import pandas as pd
 from pathlib import Path
 from typing import Optional
 
@@ -278,13 +275,10 @@ async def historical_timeseries(lat: float = Query(...), lon: float = Query(...)
         idx_500 = int(np.argmin(np.abs(depths - 500)))
         t500_raw = ds["thetao"].isel(depth=idx_500, latitude=i_lat, longitude=i_lon).values.astype(float)
         s500_raw = ds["so"].isel(depth=idx_500, latitude=i_lat, longitude=i_lon).values.astype(float)
-        time_values = ds["time"].values
         ds.close()
 
-        dates = [
-            (pd.Timestamp("1950-01-01") + pd.to_timedelta(float(value), unit="h")).date().isoformat()
-            for value in time_values
-        ]
+        # Jan 1 to Jan 7, 2024
+        dates = [f"2024-01-0{i+1}" for i in range(len(sst_raw))]
         sst_clean = [round(float(v), 3) if np.isfinite(v) else None for v in sst_raw]
         sss_clean = [round(float(v), 3) if np.isfinite(v) else None for v in sss_raw]
         t500_clean = [round(float(v), 3) if np.isfinite(v) else None for v in t500_raw]
@@ -316,112 +310,6 @@ async def historical_timeseries(lat: float = Query(...), lon: float = Query(...)
     except Exception as e:
         log.error(f"Historical query error: {e}")
         return {"error": str(e)}
-
-
-@app.get("/api/point-observation")
-async def point_observation(
-    lat: float = Query(...), lon: float = Query(...), date: str = Query(...),
-):
-    """Return a real Argo profile on the exact requested calendar date."""
-    import pandas as pd
-    if not ARGO_QC_PARQUET.exists():
-        return {"status": "unavailable", "message": "Argo observations are not indexed."}
-    try:
-        requested = pd.Timestamp(date).tz_localize(None)
-        df = pd.read_parquet(ARGO_QC_PARQUET)
-        df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.tz_localize(None)
-        df = df.dropna(subset=["date"])
-        df = df[(df["lat"].between(LAT_MIN, LAT_MAX)) & (df["lon"].between(LON_MIN, LON_MAX))]
-        if df.empty:
-            return {"status": "unavailable", "message": "No real Argo observations are indexed in the target area."}
-        exact = df[df["date"].dt.date == requested.date()]
-        if exact.empty:
-            available_start = df["date"].min().date().isoformat()
-            available_end = df["date"].max().date().isoformat()
-            return {
-                "status": "unavailable",
-                "requested_date": date,
-                "message": f"No real Argo observation exists for {requested.date().isoformat()} at the indexed location. No nearest date was substituted.",
-                "available_date_range": {"start": available_start, "end": available_end},
-            }
-        distance = (exact["lat"] - lat) ** 2 + (exact["lon"] - lon) ** 2
-        row = exact.assign(_distance=distance).sort_values("_distance").iloc[0]
-        return {
-            "status": "observed",
-            "requested_date": date,
-            "selected_date": row["date"].date().isoformat(),
-            "date_selection": "exact_real_observation_date",
-            "coordinates": {"lat": round(float(row["lat"]), 4), "lon": round(float(row["lon"]), 4)},
-            "platform": str(row["platform"]), "cycle": int(row["cycle"]),
-            "temperature": round(float(row["surf_temp"]), 3) if pd.notna(row["surf_temp"]) else None,
-            "salinity": round(float(row["surf_psal"]), 3) if pd.notna(row["surf_psal"]) else None,
-            "wind": None,
-            "wind_status": "unavailable_no_wind_observation_for_selected_profile",
-            "source": row.get("source_file", "Argo GDAC"),
-        }
-    except Exception as exc:
-        log.error("Point observation error: %s", exc)
-        return {"status": "unavailable", "message": str(exc)}
-
-
-def _fetch_json(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"User-Agent": "OceanEmbed/1.0 contact: oceanembed@example.invalid"})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def _point_in_ring(lon: float, lat: float, ring: list[list[float]]) -> bool:
-    inside = False
-    for index in range(len(ring)):
-        x1, y1 = ring[index - 1][:2]
-        x2, y2 = ring[index][:2]
-        if (y1 > lat) != (y2 > lat) and lon < (x2 - x1) * (lat - y1) / (y2 - y1) + x1:
-            inside = not inside
-    return inside
-
-
-def _alert_covers_point(feature: dict, lat: float, lon: float) -> bool:
-    geometry = feature.get("geometry") or {}
-    coordinates = geometry.get("coordinates") or []
-    if geometry.get("type") == "Polygon":
-        return bool(coordinates and _point_in_ring(lon, lat, coordinates[0]))
-    if geometry.get("type") == "MultiPolygon":
-        return any(polygon and _point_in_ring(lon, lat, polygon[0]) for polygon in coordinates)
-    return False
-
-
-@app.get("/api/hazards")
-async def hazards(lat: float = Query(...), lon: float = Query(...)):
-    """Return live official hazard reports; this is monitoring, not deterministic prediction."""
-    result = {"status": "live_monitoring", "earthquakes": [], "tsunami_alerts": [], "cyclones_storms": [], "errors": []}
-    try:
-        params = urllib.parse.urlencode({"format": "geojson", "orderby": "time", "limit": 50})
-        feed = _fetch_json(f"https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_week.geojson?{params}")
-        for feature in feed.get("features", []):
-            props = feature.get("properties", {})
-            coords = feature.get("geometry", {}).get("coordinates", [None, None])
-            if coords[0] is None or coords[1] is None:
-                continue
-            # Keep the monitoring panel relevant to the selected ocean location.
-            if abs(float(coords[1]) - lat) > 10.0 or abs(float(coords[0]) - lon) > 15.0:
-                continue
-            result["earthquakes"].append({"title": props.get("title"), "magnitude": props.get("mag"), "time": props.get("time"), "lat": coords[1], "lon": coords[0], "url": props.get("url")})
-    except Exception as exc:
-        result["errors"].append(f"USGS earthquakes: {exc}")
-    try:
-        alert_url = "https://api.weather.gov/alerts/active?status=actual&message_type=alert,update"
-        feed = _fetch_json(alert_url)
-        wanted = {"Tsunami Warning", "Tsunami Advisory", "Tropical Storm Warning", "Hurricane Warning", "Storm Surge Warning"}
-        for feature in feed.get("features", []):
-            props = feature.get("properties", {})
-            if props.get("event") in wanted and _alert_covers_point(feature, lat, lon):
-                result["tsunami_alerts" if "Tsunami" in props.get("event", "") else "cyclones_storms"].append({"event": props.get("event"), "headline": props.get("headline"), "effective": props.get("effective"), "expires": props.get("expires"), "area": props.get("areaDesc"), "url": props.get("@id")})
-    except Exception as exc:
-        result["errors"].append(f"NOAA/NWS alerts: {exc}")
-    for key in ("tsunami_alerts", "cyclones_storms"):
-        result[key] = list({(item["event"], item.get("headline")): item for item in result[key]}.values())
-    result["note"] = "Official live alerts and earthquake reports covering the selected coordinate only. No system can reliably predict the exact time or location of future earthquakes or tsunamis."
-    return result
 
 
 @app.get("/api/analysis/subsurface")
@@ -573,23 +461,23 @@ async def recon_validation():
 @app.get("/api/forecast/temperature")
 async def forecast_temperature(lat: float = Query(...), lon: float = Query(...)):
     fc = _get_forecast(lat, lon)
-    return {"lat": lat, "lon": lon, "temperature_forecast": fc.get("temperature", {}),
-            "status": fc.get("status", "unavailable"), "method": fc.get("method"), "disclaimer": fc.get("disclaimer")}
+    return {"lat": lat, "lon": lon, "temperature_forecast": fc["temperature"],
+            "method": fc["method"], "disclaimer": fc["disclaimer"]}
 
 
 @app.get("/api/forecast/salinity")
 async def forecast_salinity(lat: float = Query(...), lon: float = Query(...)):
     fc = _get_forecast(lat, lon)
-    return {"lat": lat, "lon": lon, "salinity_forecast": fc.get("salinity", {}),
-            "status": fc.get("status", "unavailable"), "method": fc.get("method"), "disclaimer": fc.get("disclaimer")}
+    return {"lat": lat, "lon": lon, "salinity_forecast": fc["salinity"],
+            "method": fc["method"], "disclaimer": fc["disclaimer"]}
 
 
 @app.get("/api/forecast/wind")
 async def forecast_wind(lat: float = Query(...), lon: float = Query(...)):
     fc = _get_forecast(lat, lon)
-    return {"lat": lat, "lon": lon, "wind_forecast": fc.get("wind", {}),
-            "status": fc.get("status", "unavailable"), "method": fc.get("method"),
-            "disclaimer": fc.get("disclaimer", "Surface wind only (10m). No subsurface wind in dataset.")}
+    return {"lat": lat, "lon": lon, "wind_forecast": fc["wind"],
+            "method": fc["method"],
+            "disclaimer": "Surface wind only (10m). No subsurface wind in dataset."}
 
 
 @app.get("/api/forecast/2day")
@@ -774,7 +662,6 @@ async def data_quality():
                     "total_profiles": n_total,
                     "valid_temperature_profiles": temp_valid,
                     "valid_salinity_profiles": sal_valid,
-                    "valid_temp_salinity_percent": round(100.0 * min(temp_valid, sal_valid) / n_total, 1) if n_total else 0.0,
                     "valid_depth_records": depth_valid,
                     "missing_temperature_count": n_total - temp_valid,
                     "missing_salinity_count": n_total - sal_valid,

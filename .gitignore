@@ -27,3 +27,6 @@ __pycache__/
 *.parquet
 tsconfig.tsbuildinfo
 .vercel
+
+.vercel
+.env*

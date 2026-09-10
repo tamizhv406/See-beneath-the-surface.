@@ -1,5 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { ClientProviders } from '@/components/client-providers'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -39,9 +40,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="antialiased">
-        {children}
+        <ClientProviders>{children}</ClientProviders>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
   )
 }
+

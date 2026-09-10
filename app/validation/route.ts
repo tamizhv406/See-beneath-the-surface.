@@ -2,6 +2,6 @@ import { NextResponse } from 'next/server';
 import { getValidation } from '@/lib/ocean-service';
 
 export async function GET() {
-  const data = await getValidation();
+  const data = getValidation();
   return NextResponse.json(data);
 }

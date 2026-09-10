@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { Sliders, Eye, EyeOff, ExternalLink, ShieldCheck } from 'lucide-react'
 
 type Location = {
@@ -51,11 +52,14 @@ const LON_MIN = 45.0, LON_MAX = 105.0
 const LAT_MIN = 5.0,  LAT_MAX = 30.0
 const DEPTH_MAX = 1000.0
 
-// Normalize to Three.js coordinates [-40, 40] x [-20, 20] x [-35, 0]
+// Normalize to Three.js standard coordinates [-40, 40] x [-35, 0] x [-20, 20]
+// X: Longitude [-40, 40] (East-West)
+// Y: Depth [-35, 0] (Vertical downward: 0m at surface, -35 at 1000m)
+// Z: Latitude [-20, 20] (North-South: North is -Z, South is +Z)
 function toSceneCoords(lat: number, lon: number, depthM: number = 0): [number, number, number] {
   const x = ((lon - LON_MIN) / (LON_MAX - LON_MIN) - 0.5) * 80
-  const y = ((lat - LAT_MIN) / (LAT_MAX - LAT_MIN) - 0.5) * 40
-  const z = -(depthM / DEPTH_MAX) * 35 // negative Z for depth downward into ocean
+  const y = -(depthM / DEPTH_MAX) * 35 // negative Y for depth downward into ocean
+  const z = -((lat - LAT_MIN) / (LAT_MAX - LAT_MIN) - 0.5) * 40
   return [x, y, z]
 }
 
@@ -146,52 +150,54 @@ export function Ocean3DScene({
   const sceneRef = useRef<THREE.Scene | null>(null)
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null)
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null)
+  const controlsRef = useRef<OrbitControls | null>(null)
   const depthPlaneRef = useRef<THREE.Mesh | null>(null)
   const profileGroupRef = useRef<THREE.Group | null>(null)
   const argoGroupRef = useRef<THREE.Group | null>(null)
   const advancedGroupRef = useRef<THREE.Group | null>(null)
-
-  // Camera Orbit state
-  const isDraggingRef = useRef(false)
-  const isPanningRef = useRef(false)
-  const prevMouseRef = useRef({ x: 0, y: 0 })
-  const sphericalRef = useRef({ radius: 95, theta: 0.85, phi: 1.15 })
-  const targetRef = useRef(new THREE.Vector3(0, 0, -17.5))
-
-  const updateCameraPosition = () => {
-    if (!cameraRef.current) return
-    const { radius, theta, phi } = sphericalRef.current
-    const sinPhiRadius = Math.sin(phi) * radius
-    cameraRef.current.position.x = targetRef.current.x + sinPhiRadius * Math.sin(theta)
-    cameraRef.current.position.y = targetRef.current.y + Math.cos(phi) * radius
-    cameraRef.current.position.z = targetRef.current.z + sinPhiRadius * Math.cos(theta)
-    cameraRef.current.lookAt(targetRef.current)
-  }
+  const pointerDownPos = useRef({ x: 0, y: 0 })
 
   // Set Camera View Presets
   const setView = (view: '3d' | 'top' | 'side') => {
     setCameraPreset(view)
+    if (!cameraRef.current || !controlsRef.current) return
+
+    // Explicitly lock Y-axis as vertical
+    cameraRef.current.up.set(0, 1, 0)
+
     if (view === '3d') {
-      sphericalRef.current = { radius: 95, theta: 0.85, phi: 1.15 }
+      cameraRef.current.position.set(0, 68, 120)
+      controlsRef.current.target.set(0, -10, 0)
     } else if (view === 'top') {
-      sphericalRef.current = { radius: 85, theta: 0.01, phi: 0.05 }
+      cameraRef.current.position.set(0.001, 110, 0.001)
+      controlsRef.current.target.set(0, -10, 0)
     } else if (view === 'side') {
-      sphericalRef.current = { radius: 90, theta: 0, phi: Math.PI / 2 }
+      cameraRef.current.position.set(0, 5, 110)
+      controlsRef.current.target.set(0, -10, 0)
     }
-    updateCameraPosition()
+
+    controlsRef.current.update()
   }
 
   // Zoom controls
   const handleZoom = (delta: number) => {
-    sphericalRef.current.radius = Math.max(30, Math.min(180, sphericalRef.current.radius + delta))
-    updateCameraPosition()
+    if (!cameraRef.current || !controlsRef.current) return
+    const dir = new THREE.Vector3().subVectors(cameraRef.current.position, controlsRef.current.target).normalize()
+    cameraRef.current.position.addScaledVector(dir, delta)
+    controlsRef.current.update()
   }
 
+  // Reset function for the 3D view: upright isometric block with perfect zoom
   const handleReset = () => {
-    targetRef.current.set(0, 0, -17.5)
-    sphericalRef.current = { radius: 95, theta: 0.85, phi: 1.15 }
+    if (!cameraRef.current || !controlsRef.current) return
+    // Explicitly lock Y-axis as vertical
+    cameraRef.current.up.set(0, 1, 0)
+    // Set default camera position and control target for optimal zoom framing
+    cameraRef.current.position.set(0, 68, 120)
+    controlsRef.current.target.set(0, -10, 0)
+    // Call controls.update() immediately
+    controlsRef.current.update()
     setCameraPreset('3d')
-    updateCameraPosition()
   }
 
   // Sync Advanced Group Visibility
@@ -201,7 +207,7 @@ export function Ocean3DScene({
     }
   }, [advancedView])
 
-  // Initialize Three.js scene
+  // Initialize Three.js scene & OrbitControls
   useEffect(() => {
     const container = mountRef.current
     if (!container) return
@@ -212,13 +218,14 @@ export function Ocean3DScene({
     // 1. Scene with Deep Oceanic Atmosphere
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0a2230)
-    scene.fog = new THREE.Fog(0x0a2230, 160, 420)
+    scene.fog = new THREE.Fog(0x0a2230, 180, 420)
     sceneRef.current = scene
 
-    // 2. Camera
+    // 2. Camera with explicit vertical Y-axis lock and upright perspective
     const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000)
+    camera.up.set(0, 1, 0)             // Lock Y-axis as vertical
+    camera.position.set(0, 68, 120)    // Perfectly framed upright isometric zoom
     cameraRef.current = camera
-    updateCameraPosition()
 
     // 3. WebGL Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
@@ -227,50 +234,61 @@ export function Ocean3DScene({
     rendererRef.current = renderer
     container.appendChild(renderer.domElement)
 
-    // 4. Illumination Rig
+    // 4. OrbitControls with strict configuration & optimal distance limits
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping = true
+    controls.dampingFactor = 0.05
+    controls.maxPolarAngle = Math.PI / 2 - 0.01  // Prevent going below horizontal plane
+    controls.minPolarAngle = 0.05                // Prevent top zenith flip
+    controls.minDistance = 25
+    controls.maxDistance = 250
+    controls.target.set(0, -10, 0)               // Center of ocean volume bounding box
+    controls.update()
+    controlsRef.current = controls
+
+    // 5. Illumination Rig
     const ambientLight = new THREE.AmbientLight(0xe0f7fa, 1.4)
     scene.add(ambientLight)
 
     const hemiLight = new THREE.HemisphereLight(0x7ee7dc, 0x103042, 1.4)
-    hemiLight.position.set(0, 0, 50)
+    hemiLight.position.set(0, 80, 0)
     scene.add(hemiLight)
 
     const keySunLight = new THREE.DirectionalLight(0xffffff, 2.0)
-    keySunLight.position.set(50, 90, 70)
+    keySunLight.position.set(60, 120, 80)
     scene.add(keySunLight)
 
     const subsurfaceFillLight = new THREE.DirectionalLight(0x38bdf8, 1.3)
-    subsurfaceFillLight.position.set(-50, -50, -40)
+    subsurfaceFillLight.position.set(-60, -60, -60)
     scene.add(subsurfaceFillLight)
 
-    // 5. ADVANCED GROUP: Contains technical wireframes, surface grids, and corner badges
+    // 6. ADVANCED GROUP: Contains technical wireframes, surface grids, and corner badges
     const advancedGroup = new THREE.Group()
     advancedGroup.visible = false
     advancedGroupRef.current = advancedGroup
     scene.add(advancedGroup)
 
-    // Neon Bounding Box Volume (Advanced View Only)
-    const boxGeo = new THREE.BoxGeometry(80, 40, 35)
+    // Neon Bounding Box Volume (80 x 35 x 40)
+    const boxGeo = new THREE.BoxGeometry(80, 35, 40)
     const wireframeGeo = new THREE.WireframeGeometry(boxGeo)
     const boxLine = new THREE.LineSegments(
       wireframeGeo,
       new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.6 })
     )
-    boxLine.position.set(0, 0, -17.5)
+    boxLine.position.set(0, -17.5, 0)
     advancedGroup.add(boxLine)
 
-    // Surface Grid (Advanced View Only)
+    // Horizontal Surface Grid (Advanced View Only)
     const gridHelper = new THREE.GridHelper(80, 8, 0x2dd4bf, 0x164654)
-    gridHelper.rotation.x = Math.PI / 2
     gridHelper.position.set(0, 0, 0)
     advancedGroup.add(gridHelper)
 
     // Corner Coordinate Badges (Advanced View Only)
     const cornerBadges = [
-      { text: '45°E, 5°N (SW)', pos: [-40, -20, 1.5] as [number, number, number] },
-      { text: '105°E, 5°N (SE)', pos: [40, -20, 1.5] as [number, number, number] },
-      { text: '45°E, 30°N (NW)', pos: [-40, 20, 1.5] as [number, number, number] },
-      { text: '105°E, 30°N (NE)', pos: [40, 20, 1.5] as [number, number, number] },
+      { text: '45°E, 5°N (SW)', pos: [-40, 1.5, 20] as [number, number, number] },
+      { text: '105°E, 5°N (SE)', pos: [40, 1.5, 20] as [number, number, number] },
+      { text: '45°E, 30°N (NW)', pos: [-40, 1.5, -20] as [number, number, number] },
+      { text: '105°E, 30°N (NE)', pos: [40, 1.5, -20] as [number, number, number] },
     ]
     cornerBadges.forEach((b) => {
       const sprite = createTextSprite(b.text, '#2dd4bf', 18)
@@ -278,7 +296,7 @@ export function Ocean3DScene({
       advancedGroup.add(sprite)
     })
 
-    // 6. CLEAN DEFAULT DEPTH STRATA MARKERS (Surface, 50m, 100m, 200m, 500m, 1000m)
+    // 7. CLEAN DEFAULT DEPTH STRATA MARKERS (Surface, 50m, 100m, 200m, 500m, 1000m)
     const strataDepths = [
       { depth: 0, color: 0x2dd4bf, opacity: 0.95, label: 'Surface (0 m)' },
       { depth: 50, color: 0x34d399, opacity: 0.75, label: 'Euphotic (50 m)' },
@@ -289,16 +307,16 @@ export function Ocean3DScene({
     ]
 
     strataDepths.forEach((strata) => {
-      const zPos = -(strata.depth / DEPTH_MAX) * 35
+      const yPos = -(strata.depth / DEPTH_MAX) * 35
 
-      // Perimeter line for strata boundary
+      // Perimeter line for strata boundary in X-Z plane
       const gridPlaneGeo = new THREE.BufferGeometry()
       const pts = [
-        new THREE.Vector3(-40, -20, zPos),
-        new THREE.Vector3(40, -20, zPos),
-        new THREE.Vector3(40, 20, zPos),
-        new THREE.Vector3(-40, 20, zPos),
-        new THREE.Vector3(-40, -20, zPos),
+        new THREE.Vector3(-40, yPos, 20),
+        new THREE.Vector3(40, yPos, 20),
+        new THREE.Vector3(40, yPos, -20),
+        new THREE.Vector3(-40, yPos, -20),
+        new THREE.Vector3(-40, yPos, 20),
       ]
       gridPlaneGeo.setFromPoints(pts)
       const line = new THREE.Line(
@@ -309,11 +327,11 @@ export function Ocean3DScene({
 
       // 3D Depth Sprite Marker along corner vertical pillar
       const depthSprite = createTextSprite(strata.label, `#${strata.color.toString(16).padStart(6, '0')}`, 20)
-      depthSprite.position.set(-43, -21, zPos)
+      depthSprite.position.set(-44, yPos, 21)
       scene.add(depthSprite)
     })
 
-    // 7. Active Depth Slice Plane (Smooth Horizontal Cutting Plane synced to depth slider)
+    // 8. Active Depth Slice Plane (Smooth Horizontal Cutting Plane synced to depth slider)
     const sliceGeo = new THREE.PlaneGeometry(80, 40)
     const sliceMat = new THREE.MeshBasicMaterial({
       color: 0x0ea5e9,
@@ -323,18 +341,19 @@ export function Ocean3DScene({
       depthWrite: false,
     })
     const sliceMesh = new THREE.Mesh(sliceGeo, sliceMat)
-    sliceMesh.position.set(0, 0, -(depth / DEPTH_MAX) * 35)
+    sliceMesh.rotation.x = -Math.PI / 2 // Lie horizontally in X-Z
+    sliceMesh.position.set(0, -(depth / DEPTH_MAX) * 35, 0)
     depthPlaneRef.current = sliceMesh
     scene.add(sliceMesh)
 
     // Slice plane border line (glowing neon cyan border)
     const sliceBorderGeo = new THREE.BufferGeometry()
     sliceBorderGeo.setFromPoints([
-      new THREE.Vector3(-40, -20, 0),
-      new THREE.Vector3(40, -20, 0),
-      new THREE.Vector3(40, 20, 0),
-      new THREE.Vector3(-40, 20, 0),
-      new THREE.Vector3(-40, -20, 0),
+      new THREE.Vector3(-40, 0, -20),
+      new THREE.Vector3(40, 0, -20),
+      new THREE.Vector3(40, 0, 20),
+      new THREE.Vector3(-40, 0, 20),
+      new THREE.Vector3(-40, 0, -20),
     ])
     const sliceBorder = new THREE.Line(
       sliceBorderGeo,
@@ -355,6 +374,7 @@ export function Ocean3DScene({
     let animId: number
     const animate = () => {
       animId = requestAnimationFrame(animate)
+      controls.update()
       renderer.render(scene, camera)
     }
     animate()
@@ -374,6 +394,7 @@ export function Ocean3DScene({
     return () => {
       cancelAnimationFrame(animId)
       resizeObserver.disconnect()
+      controls.dispose()
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement)
       }
@@ -384,8 +405,8 @@ export function Ocean3DScene({
   // Update Depth Slice Plane position when slider changes
   useEffect(() => {
     if (depthPlaneRef.current) {
-      const zPos = -(depth / DEPTH_MAX) * 35
-      depthPlaneRef.current.position.z = zPos
+      const yPos = -(depth / DEPTH_MAX) * 35
+      depthPlaneRef.current.position.y = yPos
     }
   }, [depth])
 
@@ -401,13 +422,13 @@ export function Ocean3DScene({
 
     const lat = selected.lat ?? 8.5
     const lon = selected.lon ?? 74.2
-    const [scX, scY] = toSceneCoords(lat, lon, 0)
+    const [scX, , scZ] = toSceneCoords(lat, lon, 0)
 
     // 1. Vertical profile guide pillar from surface to -1000m
     const pillarGeo = new THREE.BufferGeometry()
     pillarGeo.setFromPoints([
-      new THREE.Vector3(scX, scY, 0),
-      new THREE.Vector3(scX, scY, -35),
+      new THREE.Vector3(scX, 0, scZ),
+      new THREE.Vector3(scX, -35, scZ),
     ])
     const pillarLine = new THREE.Line(
       pillarGeo,
@@ -431,10 +452,10 @@ export function Ocean3DScene({
       roughness: 0.2,
     })
     const beaconMesh = new THREE.Mesh(beaconGeo, beaconMat)
-    beaconMesh.position.set(scX, scY, 0)
+    beaconMesh.position.set(scX, 0, scZ)
     group.add(beaconMesh)
 
-    // Pulsing halo ring on surface
+    // Pulsing halo ring on surface (in X-Z plane)
     const haloGeo = new THREE.RingGeometry(2.6, 3.6, 32)
     const haloMat = new THREE.MeshBasicMaterial({
       color: 0x63d9d0,
@@ -443,21 +464,21 @@ export function Ocean3DScene({
       side: THREE.DoubleSide,
     })
     const haloMesh = new THREE.Mesh(haloGeo, haloMat)
-    haloMesh.position.set(scX, scY, 0.05)
+    haloMesh.rotation.x = -Math.PI / 2
+    haloMesh.position.set(scX, 0.05, scZ)
     group.add(haloMesh)
 
     // Local Beacon PointLight
     const beaconLight = new THREE.PointLight(0x2dd4bf, 2.5, 35)
-    beaconLight.position.set(scX, scY, 2)
+    beaconLight.position.set(scX, 2, scZ)
     group.add(beaconLight)
 
     // 3. Subsurface Depth Profile Beads (Model & Reanalysis with Provenance)
     const profile = metric === 'temperature' ? temperatureProfile : salinityProfile
     if (profile && profile.length > 0) {
       profile.forEach((pt) => {
-        const [, , z] = toSceneCoords(lat, lon, pt.depth)
-        const val = metric === 'temperature' ? pt.temperature : pt.salinity
-        if (val == null || !Number.isFinite(val)) return
+        const [, scY, ] = toSceneCoords(lat, lon, pt.depth)
+        const val = metric === 'temperature' ? pt.temperature : (pt.salinity ?? 35)
         const color = metric === 'temperature' ? getTemperatureColor(val) : getSalinityColor(val)
 
         // Large, luminous depth beads with vibrant emission
@@ -470,7 +491,7 @@ export function Ocean3DScene({
           metalness: 0.1,
         })
         const bead = new THREE.Mesh(beadGeo, beadMat)
-        bead.position.set(scX, scY, z)
+        bead.position.set(scX, scY, scZ)
         bead.userData = {
           lat,
           lon,
@@ -480,7 +501,7 @@ export function Ocean3DScene({
           source: 'Copernicus GLORYS12V1 & OceanProfileNet AI',
           sourceKey: 'glorys',
           type: '🔵 MODEL / REANALYSIS',
-          date: undefined,
+          date: '2024-01-07',
         }
         group.add(bead)
       })
@@ -497,12 +518,12 @@ export function Ocean3DScene({
     }
 
     argoProfiles.slice(0, 150).forEach((argo) => {
-      const [ax, ay] = toSceneCoords(argo.lat, argo.lon, 0)
-      const maxZ = -(Math.min(1000, argo.max_depth) / DEPTH_MAX) * 35
+      const [ax, , az] = toSceneCoords(argo.lat, argo.lon, 0)
+      const maxY = -(Math.min(1000, argo.max_depth) / DEPTH_MAX) * 35
 
       const lineGeo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(ax, ay, 0),
-        new THREE.Vector3(ax, ay, maxZ),
+        new THREE.Vector3(ax, 0, az),
+        new THREE.Vector3(ax, maxY, az),
       ])
       const line = new THREE.Line(
         lineGeo,
@@ -519,8 +540,7 @@ export function Ocean3DScene({
         roughness: 0.3,
       })
       const floatMesh = new THREE.Mesh(floatGeo, floatMat)
-      floatMesh.position.set(ax, ay, 0)
-      floatMesh.rotation.x = Math.PI / 2
+      floatMesh.position.set(ax, 0, az)
       floatMesh.userData = {
         lat: argo.lat,
         lon: argo.lon,
@@ -536,42 +556,16 @@ export function Ocean3DScene({
     })
   }, [argoProfiles])
 
-  // Mouse & Touch Controls
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.button === 0) isDraggingRef.current = true
-    if (e.button === 2) isPanningRef.current = true
-    prevMouseRef.current = { x: e.clientX, y: e.clientY }
+  // Click Raycaster for Point Inspection (distinguishing click from orbit drag)
+  const handlePointerDown = (e: React.PointerEvent) => {
+    pointerDownPos.current = { x: e.clientX, y: e.clientY }
   }
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    const dx = e.clientX - prevMouseRef.current.x
-    const dy = e.clientY - prevMouseRef.current.y
-    prevMouseRef.current = { x: e.clientX, y: e.clientY }
+  const handlePointerUp = (e: React.PointerEvent) => {
+    const dx = Math.abs(e.clientX - pointerDownPos.current.x)
+    const dy = Math.abs(e.clientY - pointerDownPos.current.y)
+    if (dx > 6 || dy > 6) return // User was orbiting, not clicking
 
-    if (isDraggingRef.current) {
-      sphericalRef.current.theta -= dx * 0.008
-      sphericalRef.current.phi = Math.max(0.08, Math.min(Math.PI - 0.08, sphericalRef.current.phi - dy * 0.008))
-      updateCameraPosition()
-    } else if (isPanningRef.current) {
-      targetRef.current.x -= dx * 0.08
-      targetRef.current.y += dy * 0.08
-      updateCameraPosition()
-    }
-  }
-
-  const handleMouseUp = () => {
-    isDraggingRef.current = false
-    isPanningRef.current = false
-  }
-
-  const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault()
-    sphericalRef.current.radius = Math.max(30, Math.min(180, sphericalRef.current.radius + e.deltaY * 0.08))
-    updateCameraPosition()
-  }
-
-  // Click Raycaster for Point Inspection
-  const handleClick = (e: React.MouseEvent) => {
     const container = mountRef.current
     if (!container || !cameraRef.current || !sceneRef.current) return
 
@@ -611,13 +605,9 @@ export function Ocean3DScene({
       {/* Three.js canvas mount */}
       <div
         ref={mountRef}
-        style={{ width: '100%', height: '100%', cursor: isDraggingRef.current ? 'grabbing' : 'grab' }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
-        onClick={handleClick}
+        style={{ width: '100%', height: '100%', cursor: 'grab' }}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
         onContextMenu={(e) => e.preventDefault()}
       />
 
@@ -738,7 +728,7 @@ export function Ocean3DScene({
               }}
               onClick={() => setView('top')}
             >
-              Top (XY)
+              Top (XZ)
             </button>
             <button
               style={{
@@ -753,7 +743,7 @@ export function Ocean3DScene({
               }}
               onClick={() => setView('side')}
             >
-              Section (XZ)
+              Section (XY)
             </button>
           </>
         )}

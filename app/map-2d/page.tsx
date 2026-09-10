@@ -2,21 +2,16 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useEffect } from "react";
 import { useOceanData, locations } from "@/lib/ocean-context";
 import { MetricCard, SectionLabel } from "@/components/metric-card";
 import {
-  Activity,
   ArrowDown,
-  ArrowRight,
-  Bot,
+  ArrowLeft,
   Calendar,
-  ChevronRight,
-  Database,
   Download,
-  Layers3,
   Map as MapIcon,
   ShieldCheck,
-  TrendingUp,
 } from "lucide-react";
 
 const OceanMap = dynamic(
@@ -24,19 +19,17 @@ const OceanMap = dynamic(
   { ssr: false },
 );
 
-export default function OverviewPage() {
+export default function OceanMap2DPage() {
   const {
     selected,
     setSelected,
     depth,
     setDepth,
-    mode,
     setMode,
     metric,
     setMetric,
     oceanData,
     dataLoading,
-    validationMetrics,
     argoProfiles,
     argoDetail,
     selectedDate,
@@ -56,35 +49,50 @@ export default function OverviewPage() {
     isNoData,
   } = useOceanData();
 
+  useEffect(() => {
+    setMode("2D");
+  }, [setMode]);
+
   return (
     <div className="page-content page-view-enter">
-      {/* Header Introduction Row */}
-      <div className="intro-row">
-        <div>
-          <p className="eyebrow">
-            <span className="eyebrow-line" /> SIH 26066 · Subsurface Ocean Intelligence
-          </p>
-          <h1>
-            See beneath
-            <br />
-            <em>the surface.</em>
-          </h1>
-          <p className="intro-copy">
-            Scientific 3D reconstruction, subsurface analysis, and temperature–salinity forecasting using authentic Copernicus GLORYS reanalysis and Global Argo in-situ observations.
+      {/* Subpage Header Banner */}
+      <div className="subpage-header">
+        <div className="subpage-title-group">
+          <SectionLabel>Spatial Ocean Visualizer</SectionLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginTop: "4px" }}>
+            <MapIcon size={24} color="var(--cyan)" />
+            <h1 style={{ fontSize: "24px", fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>
+              2D Ocean Map · Indian Ocean Basin
+            </h1>
+          </div>
+          <p className="section-description" style={{ marginTop: "6px" }}>
+            Interactive GIS map with in-situ Argo profiling floats, depth slicing (0–1000m), and real-time Copernicus GLORYS reanalysis.
           </p>
         </div>
-        <div className="model-status">
-          <span className="status-dot" />
-          <div>
-            <span>Validation Status</span>
-            <strong>
-              MAE: {validationMetrics?.best_validation_mae_c.toFixed(2) ?? "0.55"}°C <small>•</small> R²: {validationMetrics?.validation_r2 ? validationMetrics.validation_r2.toFixed(2) : "0.98"}
-            </strong>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <div style={{ background: "rgba(5, 18, 25, 0.8)", border: "1px solid #21404a", borderRadius: "6px", padding: "6px 12px", fontSize: "11px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <Calendar size={13} color="var(--cyan)" />
+            <span style={{ color: "var(--muted-foreground)" }}>Selected Date:</span>
+            <strong style={{ color: "var(--cyan)", fontFamily: "monospace" }}>{selectedDateFormatted}</strong>
           </div>
+          <button
+            onClick={resetToToday}
+            style={{
+              background: selectedDate === todayDate ? "rgba(99, 217, 208, 0.2)" : "rgba(255, 255, 255, 0.05)",
+              border: selectedDate === todayDate ? "1px solid var(--cyan)" : "1px solid rgba(255, 255, 255, 0.15)",
+              borderRadius: "6px",
+              padding: "6px 12px",
+              fontSize: "11px",
+              color: selectedDate === todayDate ? "var(--cyan)" : "#94a3b8",
+              cursor: "pointer",
+              fontWeight: 600,
+            }}
+          >
+            Today ({todayDateFormatted})
+          </button>
         </div>
       </div>
 
-      {/* Land / Missing Data Alert */}
       {isNoData && (
         <div
           style={{
@@ -104,26 +112,53 @@ export default function OverviewPage() {
           <div>
             <strong>No real ocean observation data available for this location.</strong>
             <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
-              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on land or outside the marine dataset boundary. OceanEmbed strictly does not invent synthetic measurements.
+              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on land or outside the marine dataset boundary.
             </p>
           </div>
         </div>
       )}
 
-      {/* Hero Spatial Visualizer & KPI Section */}
+      {/* Main Grid: Map (Left) & Right-Side Information Panel */}
       <section className="hero-grid">
         <div className="panel map-panel">
           <div className="panel-header">
             <div>
-              <SectionLabel>Spatial Ocean Visualizer</SectionLabel>
-              <h2>{mode === "2D" ? "2D Indian Ocean Map" : "True 3D Volumetric Ocean Scene"}</h2>
+              <SectionLabel>Leaflet GIS Surface &amp; Subsurface Layer</SectionLabel>
+              <h2>2D Ocean Map · Indian Ocean Basin</h2>
             </div>
             <div className="segmented">
-              <button className={mode === "2D" ? "active" : ""} onClick={() => setMode("2D")}>
-                2D Map
+              <button
+                className={metric === "temperature" ? "active" : ""}
+                onClick={() => setMetric("temperature")}
+                style={{
+                  color: metric === "temperature" ? "#ff4d5a" : undefined,
+                  fontWeight: metric === "temperature" ? 700 : 500,
+                }}
+              >
+                <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#ef4444", marginRight: "5px" }} />
+                Temperature
               </button>
-              <button className={mode === "3D" ? "active" : ""} onClick={() => setMode("3D")}>
-                3D Ocean
+              <button
+                className={metric === "salinity" ? "active" : ""}
+                onClick={() => setMetric("salinity")}
+                style={{
+                  color: metric === "salinity" ? "#38bdf8" : undefined,
+                  fontWeight: metric === "salinity" ? 700 : 500,
+                }}
+              >
+                <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#38bdf8", marginRight: "5px" }} />
+                Salinity
+              </button>
+              <button
+                className={metric === "wind" ? "active" : ""}
+                onClick={() => setMetric("wind")}
+                style={{
+                  color: metric === "wind" ? "#22c55e" : undefined,
+                  fontWeight: metric === "wind" ? 700 : 500,
+                }}
+              >
+                <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#22c55e", marginRight: "5px" }} />
+                Wind
               </button>
             </div>
           </div>
@@ -132,11 +167,11 @@ export default function OverviewPage() {
           <div className="argo-toolbar" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "10px", padding: "10px 14px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
               <Calendar size={13} color="var(--cyan)" />
-              <label htmlFor="input-overview-date" style={{ fontSize: "11px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer" }}>
+              <label htmlFor="input-map2d-date" style={{ fontSize: "11px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.05em", cursor: "pointer" }}>
                 Date:
               </label>
               <input
-                id="input-overview-date"
+                id="input-map2d-date"
                 type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
@@ -153,46 +188,6 @@ export default function OverviewPage() {
               />
             </div>
 
-            {/* Parameter Selector */}
-            <div className="segmented" style={{ margin: 0 }}>
-              <button
-                type="button"
-                className={metric === "temperature" ? "active" : ""}
-                onClick={() => setMetric("temperature")}
-                style={{
-                  color: metric === "temperature" ? "#ff4d5a" : undefined,
-                  fontWeight: metric === "temperature" ? 700 : 500,
-                }}
-              >
-                <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#ef4444", marginRight: "5px" }} />
-                Temperature
-              </button>
-              <button
-                type="button"
-                className={metric === "salinity" ? "active" : ""}
-                onClick={() => setMetric("salinity")}
-                style={{
-                  color: metric === "salinity" ? "#38bdf8" : undefined,
-                  fontWeight: metric === "salinity" ? 700 : 500,
-                }}
-              >
-                <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#38bdf8", marginRight: "5px" }} />
-                Salinity
-              </button>
-              <button
-                type="button"
-                className={metric === "wind" ? "active" : ""}
-                onClick={() => setMetric("wind")}
-                style={{
-                  color: metric === "wind" ? "#22c55e" : undefined,
-                  fontWeight: metric === "wind" ? 700 : 500,
-                }}
-              >
-                <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#22c55e", marginRight: "5px" }} />
-                Wind
-              </button>
-            </div>
-
             <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
               <span style={{ fontSize: "11px", color: "#94a3b8" }}>
                 {metric === "wind"
@@ -207,7 +202,7 @@ export default function OverviewPage() {
             </div>
           </div>
 
-          {/* Map Component (Leaflet 2D or Three.js 3D) */}
+          {/* Map Component in 2D mode */}
           <OceanMap
             selected={selected}
             locations={locations}
@@ -215,7 +210,7 @@ export default function OverviewPage() {
             onMapClick={handleMapClick}
             onArgoSelect={handleArgoSelect}
             argoProfiles={argoProfiles}
-            mode={mode}
+            mode="2D"
             metric={metric}
             onMetricChange={setMetric}
             depth={depth}
@@ -303,7 +298,7 @@ export default function OverviewPage() {
               </div>
             </div>
 
-            {/* Argo In-situ CTD Profile Detail (if Argo float selected) */}
+            {/* Argo In-situ CTD Profile Detail */}
             {argoDetail && (
               <div
                 style={{
@@ -521,148 +516,6 @@ export default function OverviewPage() {
           </div>
         </div>
       </section>
-
-      {/* Scientific Workspaces Quick Navigation Cards */}
-      <div style={{ marginTop: "32px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-          <div>
-            <SectionLabel>Specialized Workspaces</SectionLabel>
-            <h2 style={{ fontSize: "18px", margin: "4px 0 0", fontWeight: 600 }}>
-              Deep Ocean Analysis &amp; Forecast Modules
-            </h2>
-          </div>
-          <span style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>
-            Select any workspace in the sidebar or below to open its dedicated view
-          </span>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-            gap: "14px",
-          }}
-        >
-          {[
-            {
-              title: "AI Reconstruction",
-              href: "/reconstruction",
-              icon: Bot,
-              color: "#ffd166",
-              description:
-                "OceanProfileNet deep neural profile synthesizer. Observed vs Reconstructed temperature & salinity profiles with 95% epistemic confidence intervals.",
-            },
-            {
-              title: "Subsurface Analysis",
-              href: "/subsurface",
-              icon: Activity,
-              color: "#45b7ff",
-              description:
-                "Thermocline, halocline depth boundaries, maximum vertical thermal/salinity gradients, and T-S Water Mass Diagram.",
-            },
-            {
-              title: "Historical Data",
-              href: "/historical",
-              icon: Calendar,
-              color: "var(--cyan)",
-              description:
-                "Daily reanalysis time series (Jan 1–7, 2024), surface temperature curves, and anomalies relative to multi-day mean.",
-            },
-            {
-              title: "Tomorrow's Prediction",
-              href: "/prediction",
-              icon: TrendingUp,
-              color: "#c084fc",
-              description:
-                "Physical ocean forecasting (T+1 & T+2) for surface and 500m depth temperatures, salinity, and uncertainty standard deviations.",
-            },
-            {
-              title: "Data Quality & QC",
-              href: "/data-quality",
-              icon: ShieldCheck,
-              color: "#22c55e",
-              description:
-                "Strict adherence to Absolute Rule #1 (Zero Synthetic Data). Position QC flags, Argo profile audits, and GLORYS strata.",
-            },
-            {
-              title: "Data Sources & Lineage",
-              href: "/provenance",
-              icon: Database,
-              color: "#38bdf8",
-              description:
-                "Transparent provenance table for Copernicus GLORYS12V1, Global Argo CTD, OSTIA SST, and CCMP wind vector analysis.",
-            },
-          ].map((card) => {
-            const Icon = card.icon;
-            return (
-              <Link
-                key={card.href}
-                href={card.href}
-                style={{
-                  textDecoration: "none",
-                  color: "inherit",
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "space-between",
-                  background: "rgba(13, 34, 44, 0.6)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "10px",
-                  padding: "18px",
-                  transition: "all 0.2s ease",
-                }}
-                className="workspace-quick-card"
-              >
-                <div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      marginBottom: "10px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: "32px",
-                        height: "32px",
-                        borderRadius: "8px",
-                        background: `${card.color}15`,
-                        color: card.color,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <Icon size={18} />
-                    </div>
-                    <ArrowRight size={14} color="var(--muted-foreground)" />
-                  </div>
-                  <strong style={{ fontSize: "14px", display: "block", color: "#f0fdfa", marginBottom: "6px" }}>
-                    {card.title}
-                  </strong>
-                  <p style={{ fontSize: "11px", color: "var(--muted-foreground)", lineHeight: "1.5", margin: 0 }}>
-                    {card.description}
-                  </p>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    marginTop: "14px",
-                    fontSize: "11px",
-                    color: "var(--cyan)",
-                    fontWeight: 600,
-                  }}
-                >
-                  <span>Open Workspace</span>
-                  <ChevronRight size={13} />
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
