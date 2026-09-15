@@ -270,7 +270,7 @@ export function OceanMap({
           <strong style="color:${targetColor}; font-size:12px;">${isOcean ? '🌊 Marine Coordinate' : '🏜️ Land Coordinate'}</strong><br/>
           <div style="color:#94a3b8; font-size:10px; margin:2px 0 4px;">(${selected.lat.toFixed(2)}°N, ${selected.lon.toFixed(2)}°E)</div>
           <span style="color:${isOcean ? '#67e8f9' : '#fca5a5'}; font-size:10px; line-height:1.4; display:block;">
-            ${isOcean ? 'Verified ocean body — Active marine observation' : '⚠️ Land Point: The Copernicus Marine dataset strictly covers oceanic water. Land contains no ocean measurements.'}
+            ${isOcean ? 'Verified ocean body — Active marine observation' : 'No ocean data available for this land location.'}
           </span>
         </div>
       `, { direction: 'top', offset: [0, -16] }).openTooltip()

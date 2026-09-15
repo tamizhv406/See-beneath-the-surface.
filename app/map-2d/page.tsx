@@ -110,9 +110,9 @@ export default function OceanMap2DPage() {
         >
           <span style={{ fontSize: "18px" }}>⚠️</span>
           <div>
-            <strong>No real ocean observation data available for this location.</strong>
+            <strong>No ocean data available for this land location.</strong>
             <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
-              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on land or outside the marine dataset boundary.
+              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on continental landmass. OceanEmbed strictly uses real Copernicus ocean measurements.
             </p>
           </div>
         </div>
@@ -325,7 +325,7 @@ export default function OceanMap2DPage() {
 
                 {/* Primary Metric Reading for Selected Depth & Parameter */}
                 {(() => {
-                  const closestPt = argoDetail.profile?.reduce((closest, pt) =>
+                  const closestPt = argoDetail.profile?.reduce((closest: any, pt: any) =>
                     Math.abs(pt.depth - depth) < Math.abs(closest.depth - depth) ? pt : closest,
                     argoDetail.profile[0]
                   );
@@ -353,7 +353,7 @@ export default function OceanMap2DPage() {
                     <span>{metric === "temperature" ? "Observed Temp (°C)" : metric === "salinity" ? "Observed Salinity (PSU)" : "Measurement"}</span>
                   </div>
                   <div style={{ maxHeight: "100px", overflowY: "auto", borderTop: "1px solid #21404a", paddingTop: "4px" }}>
-                    {argoDetail.profile?.slice(0, 10).map((p, idx) => (
+                    {argoDetail.profile?.slice(0, 10).map((p: any, idx: number) => (
                       <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", padding: "2px 0", fontFamily: "monospace" }}>
                         <span>{p.depth} m</span>
                         {metric === "temperature" && (

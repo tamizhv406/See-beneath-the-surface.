@@ -36,6 +36,7 @@ export default function Ocean3DPage() {
     getSalAtDepth,
     depthText,
     isNoData,
+    isLand,
   } = useOceanData();
 
   useEffect(() => {
@@ -60,6 +61,31 @@ export default function Ocean3DPage() {
           <ArrowLeft size={14} /> Back to Overview
         </Link>
       </div>
+
+      {isLand && (
+        <div
+          style={{
+            marginBottom: "20px",
+            padding: "16px 20px",
+            borderRadius: "8px",
+            border: "1px solid #ee8e7a",
+            background: "rgba(238, 142, 122, 0.12)",
+            color: "#ee8e7a",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
+          <span style={{ fontSize: "18px" }}>⚠️</span>
+          <div>
+            <strong>No ocean data available for this land location.</strong>
+            <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
+              The selected coordinate ({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E) falls on continental landmass. OceanEmbed strictly uses real Copernicus ocean measurements.
+            </p>
+          </div>
+        </div>
+      )}
 
       <section className="hero-grid">
         <div className="panel map-panel">

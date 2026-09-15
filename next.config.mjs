@@ -7,6 +7,11 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  transpilePackages: ['leaflet'],
+  turbopack: {
+    root: process.cwd(),
+  },
 }
 
 export default nextConfig
+

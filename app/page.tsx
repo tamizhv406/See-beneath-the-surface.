@@ -58,6 +58,8 @@ export default function OverviewPage() {
     getSalAtDepth,
     depthText,
     isNoData,
+    isLand,
+    isOcean,
     dateAlertMessage,
     argoDetail,
   } = useOceanData();
@@ -403,7 +405,7 @@ export default function OverviewPage() {
 
                 {/* Primary Metric Reading for Selected Depth & Parameter */}
                 {(() => {
-                  const closestPt = argoDetail.profile?.reduce((closest, pt) =>
+                  const closestPt = argoDetail.profile?.reduce((closest: any, pt: any) =>
                     Math.abs(pt.depth - depth) < Math.abs(closest.depth - depth) ? pt : closest,
                     argoDetail.profile[0]
                   );
@@ -431,7 +433,7 @@ export default function OverviewPage() {
                     <span>{metric === "temperature" ? "Observed Temp (°C)" : metric === "salinity" ? "Observed Salinity (PSU)" : "Measurement"}</span>
                   </div>
                   <div style={{ maxHeight: "100px", overflowY: "auto", borderTop: "1px solid #21404a", paddingTop: "4px" }}>
-                    {argoDetail.profile?.slice(0, 10).map((p, idx) => (
+                    {argoDetail.profile?.slice(0, 10).map((p: any, idx: number) => (
                       <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", padding: "2px 0", fontFamily: "monospace" }}>
                         <span>{p.depth} m</span>
                         {metric === "temperature" && (
@@ -496,10 +498,10 @@ export default function OverviewPage() {
             <div className="metric-list">
               <MetricCard
                 label="Sea Surface Temperature"
-                value={formatValue(oceanData?.surface_temp)}
-                suffix="°C"
-                note="Copernicus GLORYS physical reanalysis (0.49 m)"
-                badge={isNoData || oceanData?.surface_temp == null ? "NO DATA" : "REAL OBSERVATION"}
+                value={isLand ? "—" : formatValue(oceanData?.surface_temp)}
+                suffix={isLand ? "" : "°C"}
+                note={isLand ? "No ocean data available for this land location." : "Copernicus GLORYS physical reanalysis (0.49 m)"}
+                badge={isLand ? "LAND LOCATION" : (isNoData || oceanData?.surface_temp == null ? "NO DATA" : "REAL OBSERVATION")}
                 onViewSource={() =>
                   handleOpenProvenance("glorys", {
                     depth: 0.49,
@@ -512,10 +514,10 @@ export default function OverviewPage() {
               />
               <MetricCard
                 label="Sea Surface Salinity"
-                value={formatValue(oceanData?.salinity)}
-                suffix="PSU"
-                note="Copernicus physical reanalysis (0.49 m)"
-                badge={oceanData?.salinity != null ? "REAL OBSERVATION" : "UNOBSERVED"}
+                value={isLand ? "—" : formatValue(oceanData?.salinity)}
+                suffix={isLand ? "" : "PSU"}
+                note={isLand ? "No ocean data available for this land location." : "Copernicus physical reanalysis (0.49 m)"}
+                badge={isLand ? "LAND LOCATION" : (oceanData?.salinity != null ? "REAL OBSERVATION" : "UNOBSERVED")}
                 onViewSource={() =>
                   handleOpenProvenance("glorys", {
                     depth: 0.49,
@@ -570,17 +572,28 @@ export default function OverviewPage() {
 
       {/* 24-HOUR / DAILY SURFACE TEMPERATURE ANALYSIS GRAPH (REFERENCE IMAGE 2) */}
       <section style={{ marginTop: "28px" }}>
-        <SurfaceTemperatureChart
-          dates={histSeries?.dates ?? []}
-          temperatures={histSeries?.surface_temp ?? []}
-          stationName={selected.name}
-          stationCode={selected.code}
-          stationRegion={selected.region}
-          minDate={minDate}
-          maxDate={maxDate}
-          selectedDate={selectedDate}
-          onSelectDate={(d) => setSelectedDate(d)}
-        />
+        {isLand ? (
+          <div className="panel" style={{ padding: "36px 20px", textAlign: "center", border: "1px solid rgba(238, 142, 122, 0.35)", borderRadius: "8px", background: "rgba(6, 21, 28, 0.9)" }}>
+            <p style={{ margin: 0, color: "#ee8e7a", fontSize: "16px", fontWeight: 700 }}>
+              No ocean data available for this land location.
+            </p>
+            <p style={{ margin: "6px 0 0", color: "#87a4a6", fontSize: "12px" }}>
+              The selected coordinate ({selected.lat != null ? `${Math.abs(selected.lat).toFixed(2)}°${selected.lat >= 0 ? "N" : "S"}` : "—"}, {selected.lon != null ? `${Math.abs(selected.lon).toFixed(2)}°${selected.lon >= 0 ? "E" : "W"}` : "—"}) falls on continental landmass. OceanEmbed strictly uses real oceanic measurements.
+            </p>
+          </div>
+        ) : (
+          <SurfaceTemperatureChart
+            dates={histSeries?.dates ?? []}
+            temperatures={histSeries?.surface_temp ?? []}
+            stationName={selected.name}
+            stationCode={selected.code}
+            stationRegion={selected.region}
+            minDate={minDate}
+            maxDate={maxDate}
+            selectedDate={selectedDate}
+            onSelectDate={(d) => setSelectedDate(d)}
+          />
+        )}
       </section>
 
       {/* Scientific Workspaces Quick Navigation Cards */}

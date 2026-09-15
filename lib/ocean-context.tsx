@@ -45,6 +45,8 @@ export type ValidationMetrics = {
 
 export type OceanData = {
   status: string;
+  isLand?: boolean;
+  isNoData?: boolean;
   message?: string;
   coordinates: { lat: number; lon: number };
   nearest_grid: { lat: number; lon: number } | null;
@@ -209,6 +211,8 @@ interface OceanContextType {
   getSalAtDepth: (targetDepth: number) => number | null | undefined;
   depthText: string;
   isNoData: boolean;
+  isLand: boolean;
+  isOcean: boolean;
   isFutureDate: boolean;
   isPastDate: boolean;
   dateAlertMessage: string | null;
@@ -264,7 +268,7 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     const lat = selected.lat ?? 8.5;
     const lon = selected.lon ?? 74.2;
     if (!isOceanCoordinate(lat, lon)) {
-      return `Land Coordinate Selected (${lat.toFixed(2)}°N, ${lon.toFixed(2)}°E): Data Unavailable. (Terrestrial land surface observations may be integrated in a future feature expansion). Copernicus Marine Service provides physical ocean observations (Temperature, Salinity, Wind) exclusively for oceanic waters.`;
+      return "No ocean data available for this land location.";
     }
 
     if (isFutureDate || isPastDate) {
@@ -328,6 +332,46 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     const lon = selected.lon ?? 74.2;
 
     setDataLoading(true);
+
+    // CHANGE 2: Strict Land Detection BEFORE requesting or displaying data
+    const isOcean = isOceanCoordinate(lat, lon);
+    if (!isOcean) {
+      setOceanData({
+        status: "no_data",
+        isNoData: true,
+        isLand: true,
+        message: "No ocean data available for this land location.",
+        coordinates: { lat, lon },
+        nearest_grid: { lat, lon },
+        surface_temp: null,
+        subsurface_temp: null,
+        bottom_temp: null,
+        salinity: null,
+        wind_speed: null,
+        sea_level: null,
+        current_speed: null,
+        current_direction: null,
+        mld: null,
+        temperature_profile: [],
+        model_profile: [],
+        reference_profile: [],
+        salinity_profile: [],
+        observed_salinity_profile: [],
+        temp_uncertainty: [],
+        sal_uncertainty: [],
+        provenance: {
+          source: "No ocean data available for this land location.",
+          observation_date: selectedDate,
+          qc_status: "Land coordinate — Physical ocean parameters masked",
+          classification: "LAND",
+        },
+      });
+      setHistoricalData(null);
+      setSubsurfaceData(null);
+      setForecastData(null);
+      setDataLoading(false);
+      return;
+    }
 
     if (isFutureDate || isPastDate) {
       setOceanData({
@@ -418,13 +462,31 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     value == null || !Number.isFinite(value) ? "—" : value.toFixed(decimals);
 
   const getTempAtDepth = (targetDepth: number) => {
+    if (!isOceanCoordinate(selected.lat ?? 8.5, selected.lon ?? 74.2)) return null;
     if (targetDepth <= 1) return oceanData?.surface_temp;
-    return null; // Subsurface depth unobserved in surface dataset
+    const prof = oceanData?.temperature_profile;
+    if (prof && prof.length > 0) {
+      const closest = prof.reduce((prev, curr) =>
+        Math.abs(curr.depth - targetDepth) < Math.abs(prev.depth - targetDepth) ? curr : prev,
+        prof[0]
+      );
+      return closest?.temperature ?? null;
+    }
+    return null;
   };
 
   const getSalAtDepth = (targetDepth: number) => {
+    if (!isOceanCoordinate(selected.lat ?? 8.5, selected.lon ?? 74.2)) return null;
     if (targetDepth <= 1) return oceanData?.salinity;
-    return null; // Subsurface depth unobserved in surface dataset
+    const prof = oceanData?.salinity_profile;
+    if (prof && prof.length > 0) {
+      const closest = prof.reduce((prev, curr) =>
+        Math.abs(curr.depth - targetDepth) < Math.abs(prev.depth - targetDepth) ? curr : prev,
+        prof[0]
+      );
+      return closest?.salinity ?? null;
+    }
+    return null;
   };
 
   const runPipelineDemo = () => {
@@ -436,7 +498,9 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     setSelected(locations[(locations.indexOf(selected) + 1) % locations.length]);
   };
 
-  const isNoData = oceanData?.status === "no_data" || isFutureDate || isPastDate;
+  const isLand = !isOceanCoordinate(selected.lat ?? 8.5, selected.lon ?? 74.2);
+  const isOcean = !isLand;
+  const isNoData = isLand || oceanData?.status === "no_data" || isFutureDate || isPastDate;
 
   return (
     <OceanContext.Provider
@@ -492,6 +556,8 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
         getSalAtDepth,
         depthText,
         isNoData,
+        isLand,
+        isOcean,
         isFutureDate,
         isPastDate,
         dateAlertMessage,

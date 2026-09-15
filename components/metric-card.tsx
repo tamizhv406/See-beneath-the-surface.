@@ -12,7 +12,14 @@ export type MetricBadgeType =
   | "MODEL / REANALYSIS"
   | "AI RECONSTRUCTED"
   | "PREDICTED"
-  | "NO DATA";
+  | "NO DATA"
+  | "LAND LOCATION"
+  | "REAL OBSERVATION"
+  | "SATELLITE OBSERVED"
+  | "UNOBSERVED"
+  | "NO SUBSURFACE CTD"
+  | "NOT IN DATASET"
+  | (string & {});
 
 export function MetricCard({
   label,
@@ -30,7 +37,7 @@ export function MetricCard({
   onViewSource?: () => void;
 }) {
   const badgeColor =
-    badge === "OBSERVED"
+    badge === "OBSERVED" || badge === "REAL OBSERVATION"
       ? "#22c55e"
       : badge === "MODEL / REANALYSIS"
       ? "#38bdf8"
@@ -38,10 +45,14 @@ export function MetricCard({
       ? "#facc15"
       : badge === "PREDICTED"
       ? "#c084fc"
+      : badge === "SATELLITE OBSERVED"
+      ? "#34d399"
+      : badge === "LAND LOCATION"
+      ? "#ee8e7a"
       : "#94a3b8";
 
   const prefixIcon =
-    badge === "OBSERVED"
+    badge === "OBSERVED" || badge === "REAL OBSERVATION"
       ? "🟢 "
       : badge === "MODEL / REANALYSIS"
       ? "🔵 "
@@ -49,6 +60,10 @@ export function MetricCard({
       ? "🟡 "
       : badge === "PREDICTED"
       ? "🟣 "
+      : badge === "SATELLITE OBSERVED"
+      ? "🛰️ "
+      : badge === "LAND LOCATION"
+      ? "🏜️ "
       : "⚪ ";
 
   return (

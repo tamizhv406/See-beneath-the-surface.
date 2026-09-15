@@ -60,7 +60,7 @@ export default function PredictionPage() {
             🏜️
           </div>
           <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#f59e0b", margin: "0 0 8px" }}>
-            Data Unavailable for Terrestrial Coordinates
+            No ocean data available for this land location.
           </h2>
           <p style={{ color: "#fbbf24", fontSize: "13px", maxWidth: "620px", margin: "0 auto 12px", lineHeight: "1.6" }}>
             Selected Coordinate: <strong>({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E)</strong> falls on land. Terrestrial land-surface modeling may be integrated in a future feature expansion.
