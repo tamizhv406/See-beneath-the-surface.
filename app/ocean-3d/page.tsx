@@ -62,7 +62,7 @@ export default function Ocean3DPage() {
         </Link>
       </div>
 
-      {isLand && (
+      {isLand ? (
         <div
           style={{
             marginBottom: "20px",
@@ -85,7 +85,30 @@ export default function Ocean3DPage() {
             </p>
           </div>
         </div>
-      )}
+      ) : isNoData ? (
+        <div
+          style={{
+            marginBottom: "20px",
+            padding: "16px 20px",
+            borderRadius: "8px",
+            border: "1px solid #f59e0b",
+            background: "rgba(245, 158, 11, 0.12)",
+            color: "#fbbf24",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
+          <span style={{ fontSize: "18px" }}>⚠️</span>
+          <div>
+            <strong>Observation data unavailable for selected parameters.</strong>
+            <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
+              The selected coordinate or date falls outside the verified observation window. Please select an ocean station within 5°N–30°N, 45°E–105°E between 2024-06-23 and 2026-09-10.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <section className="hero-grid">
         <div className="panel map-panel">

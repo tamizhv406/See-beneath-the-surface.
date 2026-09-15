@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { useOceanData, locations } from "@/lib/ocean-context";
 import { MetricCard, SectionLabel } from "@/components/metric-card";
 import {
+  Activity,
   ArrowDown,
   ArrowLeft,
   Calendar,
@@ -47,6 +48,7 @@ export default function OceanMap2DPage() {
     getSalAtDepth,
     depthText,
     isNoData,
+    isLand,
   } = useOceanData();
 
   useEffect(() => {
@@ -93,7 +95,7 @@ export default function OceanMap2DPage() {
         </div>
       </div>
 
-      {isNoData && (
+      {isLand ? (
         <div
           style={{
             marginBottom: "20px",
@@ -116,7 +118,30 @@ export default function OceanMap2DPage() {
             </p>
           </div>
         </div>
-      )}
+      ) : isNoData ? (
+        <div
+          style={{
+            marginBottom: "20px",
+            padding: "16px 20px",
+            borderRadius: "8px",
+            border: "1px solid #f59e0b",
+            background: "rgba(245, 158, 11, 0.12)",
+            color: "#fbbf24",
+            fontSize: "13px",
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+          }}
+        >
+          <span style={{ fontSize: "18px" }}>⚠️</span>
+          <div>
+            <strong>Observation data unavailable for selected parameters.</strong>
+            <p style={{ margin: "4px 0 0", fontSize: "11px", color: "var(--muted-foreground)" }}>
+              The selected coordinate or date falls outside the verified observation window. Please select an ocean station within 5°N–30°N, 45°E–105°E between 2024-06-23 and 2026-09-10.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {/* Main Grid: Map (Left) & Right-Side Information Panel */}
       <section className="hero-grid">
@@ -404,7 +429,87 @@ export default function OceanMap2DPage() {
               </div>
             )}
 
-            <div className="coordinate-note">
+            {/* Real Observed Value for Selected Coordinate */}
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "10px 12px",
+                background: "rgba(5, 18, 25, 0.9)",
+                borderRadius: "6px",
+                border: "1px solid rgba(33, 64, 74, 0.9)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <div>
+                <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block" }}>
+                  {metric === "temperature" ? "Surface Temperature" : metric === "salinity" ? "Surface Salinity" : "Wind Speed"} ({depthText})
+                </span>
+                <strong
+                  style={{
+                    fontSize: "18px",
+                    fontFamily: "monospace",
+                    color: metric === "temperature" ? "#ff4d5a" : metric === "salinity" ? "#38bdf8" : "#22c55e",
+                  }}
+                >
+                  {metric === "temperature"
+                    ? oceanData?.surface_temp != null
+                      ? `${formatValue(oceanData.surface_temp)} °C`
+                      : "No data"
+                    : metric === "salinity"
+                    ? oceanData?.salinity != null
+                      ? `${formatValue(oceanData.salinity)} PSU`
+                      : "No data"
+                    : oceanData?.wind_speed != null
+                    ? `${formatValue(oceanData.wind_speed)} m/s`
+                    : "No data"}
+                </strong>
+              </div>
+              <span
+                style={{
+                  fontSize: "10px",
+                  padding: "3px 8px",
+                  borderRadius: "4px",
+                  background: isNoData ? "rgba(148, 163, 184, 0.12)" : "rgba(34, 197, 94, 0.15)",
+                  color: isNoData ? "#94a3b8" : "#22c55e",
+                  fontWeight: 700,
+                  fontFamily: "monospace",
+                  border: isNoData ? "1px solid rgba(148, 163, 184, 0.2)" : "1px solid rgba(34, 197, 94, 0.3)",
+                }}
+              >
+                {isNoData ? "UNOBSERVED" : "100% REAL DATA"}
+              </span>
+            </div>
+
+            {/* Quick Link to Subsurface Profile Analysis (carrying coordinate, date, depth, variable) */}
+            <Link
+              href={`/subsurface?lat=${selected.lat != null ? selected.lat.toFixed(3) : "8.500"}&lon=${selected.lon != null ? selected.lon.toFixed(3) : "74.200"}&date=${selectedDate}&metric=${metric}&depth=${depth}`}
+              className="primary-button"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px",
+                width: "100%",
+                padding: "10px 14px",
+                marginTop: "12px",
+                background: "var(--cyan)",
+                color: "#031219",
+                fontWeight: 700,
+                fontSize: "12px",
+                borderRadius: "6px",
+                textDecoration: "none",
+                letterSpacing: "0.02em",
+                boxShadow: "0 4px 14px rgba(99, 217, 208, 0.25)",
+                transition: "all 0.15s ease",
+              }}
+              title="Open the deep 0–1000m subsurface temperature and salinity stratification profile for this coordinate"
+            >
+              <Activity size={15} /> OPEN SUBSURFACE ANALYSIS
+            </Link>
+
+            <div className="coordinate-note" style={{ marginTop: "12px" }}>
               <span className={`status-dot ${isNoData ? "muted-dot" : ""}`} />{" "}
               {dataLoading
                 ? "Reading verified NetCDF reanalysis…"

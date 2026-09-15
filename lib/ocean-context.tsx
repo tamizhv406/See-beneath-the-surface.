@@ -78,8 +78,19 @@ export type OceanData = {
 };
 
 export type ForecastResponse = {
+  status?: string;
+  isOperational?: boolean;
+  message?: string;
   lat: number;
   lon: number;
+  stationName?: string;
+  latest_observation_date?: string;
+  latest_observation?: {
+    surface_temp: number | null;
+    surface_sal: number | null;
+    wind_speed: number | null;
+    wind_to_dir: number | null;
+  };
   classification: string;
   method: string;
   horizon_days: number[];
@@ -292,10 +303,22 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
   const argoDateTo = selectedDate;
   const setArgoDateTo = (d: string) => setSelectedDate(d);
 
-  // Core Ocean Observation Data
-  const [oceanData, setOceanData] = useState<OceanData | null>(null);
+  // Core Ocean Observation Data with synchronous initial hydration
+  const [oceanData, setOceanData] = useState<OceanData | null>(() => {
+    try {
+      return getPrediction(locations[0].lat ?? 8.5, locations[0].lon ?? 74.2, defaultDate) as any;
+    } catch {
+      return null;
+    }
+  });
   const [dataLoading, setDataLoading] = useState<boolean>(false);
-  const [validationMetrics, setValidationMetrics] = useState<ValidationMetrics | null>(null);
+  const [validationMetrics, setValidationMetrics] = useState<ValidationMetrics | null>(() => {
+    try {
+      return (getValidation() as any)?.metrics || null;
+    } catch {
+      return null;
+    }
+  });
 
   // In-situ Argo Profiles
   const [argoProfiles, setArgoProfiles] = useState<any[]>([]);
@@ -307,10 +330,16 @@ export function OceanDataProvider({ children }: { children: React.ReactNode }) {
     setArgoParameter(m === "wind" ? "wind" : m);
   };
 
-  // Prediction & Historical Data
+  // Prediction & Historical Data with synchronous initial hydration
   const [forecastData, setForecastData] = useState<ForecastResponse | null>(null);
   const [historicalData, setHistoricalData] = useState<HistoricalResponse | null>(null);
-  const [subsurfaceData, setSubsurfaceData] = useState<SubsurfaceResponse | null>(null);
+  const [subsurfaceData, setSubsurfaceData] = useState<SubsurfaceResponse | null>(() => {
+    try {
+      return getSubsurface(locations[0].lat ?? 8.5, locations[0].lon ?? 74.2, defaultDate) as any;
+    } catch {
+      return null;
+    }
+  });
   const [dataQualityData, setDataQualityData] = useState<any>(null);
 
   // Provenance Modal State

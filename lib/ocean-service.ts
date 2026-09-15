@@ -109,19 +109,39 @@ function getOceanMask(): Uint8Array | null {
 }
 
 /**
+ * Normalizes longitude into standard -180° to 180° geographic range
+ * handles both 0°–360° and -180°–180° inputs.
+ */
+export function normalizeLon(lon: number): number {
+  let norm = lon % 360;
+  if (norm > 180) norm -= 360;
+  if (norm < -180) norm += 360;
+  return Number(norm.toFixed(4));
+}
+
+/**
+ * Validates whether coordinate is within the North Indian Ocean scientific domain (5°N–30°N, 45°E–105°E).
+ */
+export function isNioDomain(lat: number, lon: number): boolean {
+  const nLon = normalizeLon(lon);
+  return lat >= 5.0 && lat <= 30.0 && nLon >= 45.0 && nLon <= 105.0;
+}
+
+/**
  * Returns true if the coordinate falls on verified ocean/sea water within the Copernicus domain.
  * Returns false if the coordinate falls on land (e.g. mainland India, Africa, Arabia, Sri Lanka interior)
  * or is outside the spatial bounds (0°–30°N, 40°–100°E).
  */
 export function isOceanCoordinate(lat: number, lon: number): boolean {
-  if (lat < 0.0 || lat > 30.0 || lon < 40.0 || lon > 100.0) {
+  const nLon = normalizeLon(lon);
+  if (lat < 0.0 || lat > 30.0 || nLon < 40.0 || nLon > 100.0) {
     return false;
   }
   const mask = getOceanMask();
   if (!mask) return false;
 
   const latIdx = Math.round(lat * 12);
-  const lonIdx = Math.round((lon - 40.0) * 12);
+  const lonIdx = Math.round((nLon - 40.0) * 12);
   if (latIdx < 0 || latIdx >= 361 || lonIdx < 0 || lonIdx >= 720) {
     return false;
   }
@@ -161,12 +181,13 @@ export function getPrimaryStations(): MarineStation[] {
 }
 
 export function findClosestStation(lat: number, lon: number): { station: MarineStation; distanceDeg: number } {
+  const nLon = normalizeLon(lon);
   let closest: MarineStation | null = null;
   let minDistance = Infinity;
 
   for (const loc of Object.values(locationsDict)) {
     const dLat = loc.lat - lat;
-    const dLon = loc.lon - lon;
+    const dLon = loc.lon - nLon;
     const dist = Math.sqrt(dLat * dLat + dLon * dLon);
     if (dist < minDistance) {
       minDistance = dist;
@@ -430,16 +451,17 @@ export function getHistoricalSeries(
 
 // Backward-compatible adaptors for existing frontend views
 export function getPrediction(lat: number, lon: number, targetDate?: string) {
+  const nLon = normalizeLon(lon);
   // 1. Strict Land vs Ocean verification
-  const isOcean = isOceanCoordinate(lat, lon);
+  const isOcean = isOceanCoordinate(lat, nLon);
   if (!isOcean) {
     return {
       status: 'no_data',
       isNoData: true,
       isLand: true,
       message: 'No ocean data available for this land location.',
-      coordinates: { lat, lon },
-      nearest_grid: { lat, lon },
+      coordinates: { lat, lon: nLon },
+      nearest_grid: { lat, lon: nLon },
       surface_temp: null,
       salinity: null,
       wind_speed: null,
@@ -468,17 +490,17 @@ export function getPrediction(lat: number, lon: number, targetDate?: string) {
     };
   }
 
-  const { station, distanceDeg } = findClosestStation(lat, lon);
+  const { station, distanceDeg } = findClosestStation(lat, nLon);
   if (!station) return null;
 
   // If outside domain or too far from station grid (> 3.5°)
-  if (lat < 0 || lat > 30 || lon < 40 || lon > 100 || distanceDeg > 3.5) {
+  if (lat < 0 || lat > 30 || nLon < 40 || nLon > 100 || distanceDeg > 3.5) {
     return {
       status: 'no_data',
       isNoData: true,
       isLand: false,
-      message: 'Selected marine coordinate is outside the verified Copernicus Marine observation domain.',
-      coordinates: { lat, lon },
+      message: 'Selected marine coordinate is outside the verified Copernicus Marine observation domain (5°N–30°N, 45°E–105°E).',
+      coordinates: { lat, lon: nLon },
       surface_temp: null,
       salinity: null,
       wind_speed: null,
@@ -579,8 +601,9 @@ export function getPrediction(lat: number, lon: number, targetDate?: string) {
 }
 
 export function getHistorical(lat: number, lon: number, endDate?: string) {
-  if (!isOceanCoordinate(lat, lon)) return null;
-  const { station, distanceDeg } = findClosestStation(lat, lon);
+  const nLon = normalizeLon(lon);
+  if (!isOceanCoordinate(lat, nLon)) return null;
+  const { station, distanceDeg } = findClosestStation(lat, nLon);
   if (!station || distanceDeg > 3.5) return null;
 
   const hist = getHistoricalSeries(station.id, endDate, 7);
@@ -604,8 +627,9 @@ export function getHistorical(lat: number, lon: number, endDate?: string) {
 }
 
 export function getSubsurface(lat: number, lon: number, targetDate?: string) {
-  if (!isOceanCoordinate(lat, lon)) return null;
-  const { station, distanceDeg } = findClosestStation(lat, lon);
+  const nLon = normalizeLon(lon);
+  if (!isOceanCoordinate(lat, nLon)) return null;
+  const { station, distanceDeg } = findClosestStation(lat, nLon);
   if (!station || distanceDeg > 3.5) return null;
 
   const obs = getStationObservation(station.id, targetDate);
@@ -669,56 +693,66 @@ export function getSubsurface(lat: number, lon: number, targetDate?: string) {
 }
 
 export function getForecast(lat: number, lon: number) {
-  if (!isOceanCoordinate(lat, lon)) return null;
-  const { station, distanceDeg } = findClosestStation(lat, lon);
+  const nLon = normalizeLon(lon);
+  if (!isOceanCoordinate(lat, nLon)) return null;
+  const { station, distanceDeg } = findClosestStation(lat, nLon);
   if (!station || distanceDeg > 3.5) return null;
 
   const latestObs = getStationObservation(station.id, metadata.max_date);
-  const surfTemp = latestObs?.surface_temp ?? 28.5;
-  const surfSal = latestObs?.surface_sal ?? 34.8;
-  const surfWind = latestObs?.wind_speed ?? 6.0;
+  const surfTemp = latestObs?.surface_temp ?? null;
+  const surfSal = latestObs?.surface_sal ?? null;
+  const surfWind = latestObs?.wind_speed ?? null;
 
   return {
+    status: 'unavailable',
+    isOperational: false,
+    message: 'Forward numerical & AI forecast inference is not currently operational for future dates beyond 10 Sep 2026. Displaying verified latest observation baseline.',
     lat: station.lat,
     lon: station.lon,
-    classification: 'PHYSICAL PERSISTENCE TREND FROM REAL DATA',
-    method: 'Autoregressive Persistence from Latest Observation (10 Sep 2026)',
-    horizon_days: [1, 2],
+    stationName: station.name,
+    latest_observation_date: metadata.max_date,
+    latest_observation: {
+      surface_temp: surfTemp,
+      surface_sal: surfSal,
+      wind_speed: surfWind,
+      wind_to_dir: latestObs?.wind_to_dir ?? null,
+    },
+    classification: 'FORWARD INFERENCE OFFLINE · REAL OBSERVATION BASELINE',
+    method: 'Authentic Copernicus Reanalysis Observation Baseline (10 Sep 2026)',
+    horizon_days: [],
     temperature: {
       't+1': {
-        surface: { value: surfTemp != null ? Number(surfTemp.toFixed(2)) : null, uncertainty_1sigma: 0.15, unit: '°C' },
+        surface: { value: null, uncertainty_1sigma: null, unit: '°C' },
         '500m': { value: null, uncertainty_1sigma: null, unit: '°C' },
         observed_last: { surface: surfTemp, '500m': null },
       },
       't+2': {
-        surface: { value: surfTemp != null ? Number(surfTemp.toFixed(2)) : null, uncertainty_1sigma: 0.25, unit: '°C' },
+        surface: { value: null, uncertainty_1sigma: null, unit: '°C' },
         '500m': { value: null, uncertainty_1sigma: null, unit: '°C' },
-        observed_last: { surface: surfTemp, '500m': null },
       },
     },
     salinity: {
       't+1': {
-        surface: { value: surfSal != null ? Number(surfSal.toFixed(2)) : null, uncertainty_1sigma: 0.1, unit: 'PSU' },
+        surface: { value: null, uncertainty_1sigma: null, unit: 'PSU' },
         '500m': { value: null, unit: 'PSU' },
         observed_last: { surface: surfSal, '500m': null },
       },
       't+2': {
-        surface: { value: surfSal != null ? Number(surfSal.toFixed(2)) : null, uncertainty_1sigma: 0.18, unit: 'PSU' },
+        surface: { value: null, uncertainty_1sigma: null, unit: 'PSU' },
         '500m': { value: null, unit: 'PSU' },
-        observed_last: { surface: surfSal, '500m': null },
       },
     },
     wind: {
       't+1': {
-        wind_speed: { value: surfWind != null ? Number(surfWind.toFixed(2)) : null, uncertainty_1sigma: 0.5, unit: 'm/s' },
-        wind_direction: { value: latestObs?.wind_to_dir ?? 120.0, unit: 'degree' },
+        wind_speed: { value: null, uncertainty_1sigma: null, unit: 'm/s' },
+        wind_direction: { value: null, unit: 'degree' },
         u_component: null,
         v_component: null,
         domain: 'surface',
         observed_last: { wind_speed: surfWind, u: null, v: null },
       },
     },
-    disclaimer: 'Forecast based on physical persistence trend from the latest authentic Copernicus observation (10 Sep 2026). Subsurface 500m unobserved.',
+    disclaimer: 'Forward forecast numerical inference is inactive. In strict adherence to scientific data integrity (Rule #1), no synthetic or speculative forward values are estimated.',
   };
 }
 
@@ -760,11 +794,34 @@ export function getArgoProfiles(
   _depth?: number | string,
   _limit?: number
 ): any[] {
-  // Return empty list because Argo GDAC data is replaced by authentic CMEMS reanalysis
-  return [];
+  const argoList = (oceanPrecomputed as any)?.argo_profiles;
+  if (!Array.isArray(argoList)) return [];
+  return argoList.slice(0, _limit || 50);
 }
 
-export function getArgoSingleProfile(_platform?: string, _cycle?: string | number): any {
-  return null;
+export function findNearestArgoProfile(lat: number, lon: number, maxDistDeg = 3.5): { profile: any; distanceDeg: number } | null {
+  const argoList = (oceanPrecomputed as any)?.argo_profiles;
+  if (!Array.isArray(argoList) || argoList.length === 0) return null;
+  let closest: any = null;
+  let minDist = Infinity;
+  for (const p of argoList) {
+    if (typeof p.lat !== 'number' || typeof p.lon !== 'number') continue;
+    const d = Math.hypot(p.lat - lat, p.lon - lon);
+    if (d < minDist && d <= maxDistDeg) {
+      minDist = d;
+      closest = p;
+    }
+  }
+  return closest ? { profile: closest, distanceDeg: minDist } : null;
+}
+
+export function getArgoSingleProfile(platform?: string, cycle?: string | number): any {
+  const argoList = (oceanPrecomputed as any)?.argo_profiles;
+  if (!Array.isArray(argoList)) return null;
+  const pStr = String(platform || '').trim();
+  const cNum = Number(cycle);
+  return argoList.find(
+    (p: any) => String(p.platform || '').trim() === pStr && (isNaN(cNum) || p.cycle === cNum)
+  ) || null;
 }
 

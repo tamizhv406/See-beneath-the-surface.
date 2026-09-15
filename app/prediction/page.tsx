@@ -5,12 +5,17 @@ import Link from "next/link";
 import { useOceanData } from "@/lib/ocean-context";
 import { SectionLabel } from "@/components/metric-card";
 import { isOceanCoordinate } from "@/lib/ocean-service";
-import { ArrowLeft, Sparkles, TrendingUp, AlertTriangle, Compass, ShieldCheck } from "lucide-react";
+import { ArrowLeft, TrendingUp, AlertTriangle, Compass, ShieldCheck, Cpu, Layers, Activity } from "lucide-react";
 
 export default function PredictionPage() {
   const { forecastData, selected, formatValue } = useOceanData();
 
   const isOcean = isOceanCoordinate(selected.lat ?? 8.5, selected.lon ?? 74.2);
+
+  const obsTemp = forecastData?.latest_observation?.surface_temp ?? null;
+  const obsSal = forecastData?.latest_observation?.surface_sal ?? null;
+  const obsWind = forecastData?.latest_observation?.wind_speed ?? null;
+  const obsDate = forecastData?.latest_observation_date || "2026-09-10";
 
   return (
     <div className="page-content page-view-enter">
@@ -20,10 +25,10 @@ export default function PredictionPage() {
           <SectionLabel>Forward Ocean Extrapolation</SectionLabel>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <TrendingUp size={24} color="#c084fc" />
-            <h1>Tomorrow&apos;s Prediction Workspace</h1>
+            <h1>Predictive Forecasting Workspace</h1>
           </div>
           <p className="section-description">
-            Short-range numerical forecast projections estimating surface and 500 m thermal-saline changes for {selected.name} with rigorous 1-sigma epistemic uncertainty intervals.
+            Forward numerical and AI model forecast evaluation for <strong>{selected.name}</strong> ({selected.code}).
           </p>
         </div>
         <Link href="/" className="subpage-back-btn">
@@ -63,10 +68,10 @@ export default function PredictionPage() {
             No ocean data available for this land location.
           </h2>
           <p style={{ color: "#fbbf24", fontSize: "13px", maxWidth: "620px", margin: "0 auto 12px", lineHeight: "1.6" }}>
-            Selected Coordinate: <strong>({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E)</strong> falls on land. Terrestrial land-surface modeling may be integrated in a future feature expansion.
+            Selected Coordinate: <strong>({selected.lat?.toFixed(2)}°N, {selected.lon?.toFixed(2)}°E)</strong> falls on continental landmass.
           </p>
           <p style={{ color: "#94a3b8", fontSize: "12px", maxWidth: "580px", margin: "0 auto 20px", lineHeight: "1.5" }}>
-            The current predictive engine operates exclusively on marine ocean physics (Copernicus GLORYS reanalysis &amp; HY-2C satellite scatterometer). Please select a marine station in the Arabian Sea, Bay of Bengal, or Indian Ocean.
+            The forecasting pipeline operates strictly on marine physics (Copernicus GLORYS reanalysis &amp; HY-2C satellite scatterometer). Please select a marine station in the North Indian Ocean domain.
           </p>
           <Link href="/" className="primary-button" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
             <Compass size={14} /> Return to Ocean Map
@@ -74,138 +79,210 @@ export default function PredictionPage() {
         </div>
       ) : (
         <section className="panel">
-          <div className="panel-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px" }}>
+          {/* Status Bar */}
+          <div
+            className="panel-header"
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "10px",
+              borderBottom: "1px solid #163845",
+              paddingBottom: "14px",
+            }}
+          >
             <div>
-              <SectionLabel>Numerical Physics Projection</SectionLabel>
-              <h2>Short-Range Ocean Physics Projection (T+1 &amp; T+2 Horizons)</h2>
+              <SectionLabel>Operational Status &amp; Data Lineage</SectionLabel>
+              <h2 style={{ margin: "4px 0 0" }}>Observation Baseline &amp; Forecast Readiness</h2>
             </div>
-            {/* Indirect, Professional Scientific Badge */}
-            <span
-              style={{
-                fontSize: "11px",
-                padding: "4px 10px",
-                borderRadius: "6px",
-                background: "rgba(192, 132, 252, 0.12)",
-                color: "#c084fc",
-                fontWeight: 700,
-                border: "1px solid rgba(192, 132, 252, 0.3)",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                letterSpacing: "0.03em",
-              }}
-            >
-              <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#c084fc", boxShadow: "0 0 8px #c084fc" }} />
-              AUTOREGRESSIVE PROJECTION MODEL · 48H HORIZON
-            </span>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  fontSize: "11px",
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  background: "rgba(245, 158, 11, 0.12)",
+                  color: "#f59e0b",
+                  fontWeight: 700,
+                  border: "1px solid rgba(245, 158, 11, 0.3)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  letterSpacing: "0.03em",
+                }}
+              >
+                <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#f59e0b" }} />
+                FORWARD INFERENCE: INACTIVE
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  background: "rgba(56, 189, 248, 0.12)",
+                  color: "#38bdf8",
+                  fontWeight: 700,
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  letterSpacing: "0.03em",
+                }}
+              >
+                <span style={{ width: "7px", height: "7px", borderRadius: "50%", background: "#38bdf8" }} />
+                OBSERVATIONAL BASELINE: VERIFIED ({obsDate})
+              </span>
+            </div>
           </div>
 
-          {forecastData?.temperature ? (
-            <div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginTop: "18px" }}>
-                {/* T+1 Surface Temperature */}
-                <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
-                  <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    T+1 HORIZON · PROJECTED SURFACE TEMPERATURE
-                  </span>
-                  <strong style={{ display: "block", fontSize: "28px", color: "#45b7ff", marginTop: "6px", fontFamily: "monospace" }}>
-                    {formatValue(forecastData.temperature["t+1"]?.surface.value)}°C
-                  </strong>
-                  <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
-                    Uncertainty margin (1σ): ±{formatValue(forecastData.temperature["t+1"]?.surface.uncertainty_1sigma)}°C
-                  </div>
-                  <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
-                    Initial Assimilation State: <strong>{formatValue(forecastData.temperature["t+1"]?.observed_last.surface)}°C</strong>
-                  </div>
-                </div>
+          {/* Scientific Integrity Disclosure Banner */}
+          <div
+            style={{
+              margin: "18px 0",
+              padding: "16px 20px",
+              borderRadius: "8px",
+              border: "1px solid rgba(56, 189, 248, 0.3)",
+              background: "rgba(10, 30, 42, 0.7)",
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "14px",
+            }}
+          >
+            <ShieldCheck size={22} color="#38bdf8" style={{ flexShrink: 0, marginTop: "2px" }} />
+            <div style={{ fontSize: "12px", lineHeight: "1.6", color: "#cbd5e1" }}>
+              <strong style={{ color: "#f0fdfa", fontSize: "13px", display: "block", marginBottom: "4px" }}>
+                Scientific Data Integrity Disclosure (Rule #1)
+              </strong>
+              Forward numerical model extrapolation and forward AI inference are currently offline for unobserved future dates.
+              In strict adherence to scientific rigor, OceanEmbed <strong>does not generate synthetic, speculative, or echoed forward forecasts</strong>.
+              Below is the authentic observational state from the latest verified Copernicus reanalysis and satellite pass ({obsDate}).
+            </div>
+          </div>
 
-                {/* T+1 500m Temperature */}
-                <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
-                  <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    T+1 HORIZON · 500M SUBSURFACE PROJECTION
-                  </span>
-                  <strong
-                    style={{
-                      display: "block",
-                      fontSize: forecastData.temperature["t+1"]?.["500m"]?.value != null ? "28px" : "16px",
-                      color: forecastData.temperature["t+1"]?.["500m"]?.value != null ? "#45b7ff" : "#94a3b8",
-                      marginTop: "6px",
-                      fontFamily: forecastData.temperature["t+1"]?.["500m"]?.value != null ? "monospace" : "sans-serif",
-                    }}
-                  >
-                    {forecastData.temperature["t+1"]?.["500m"]?.value != null
-                      ? `${formatValue(forecastData.temperature["t+1"]?.["500m"].value)}°C`
-                      : "Unobserved in Dataset"}
-                  </strong>
-                  <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
-                    {forecastData.temperature["t+1"]?.["500m"]?.uncertainty_1sigma != null
-                      ? `Uncertainty margin (1σ): ±${formatValue(forecastData.temperature["t+1"]?.["500m"].uncertainty_1sigma)}°C`
-                      : "Multi-depth CTD vertical profile required"}
-                  </div>
-                  <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
-                    Physical Depth Stratum: <strong>500 m (Intermediate Layer)</strong>
-                  </div>
-                </div>
-
-                {/* T+1 Surface Salinity */}
-                <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
-                  <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    T+1 HORIZON · PROJECTED SURFACE SALINITY
-                  </span>
-                  <strong style={{ display: "block", fontSize: "28px", color: "#ffd166", marginTop: "6px", fontFamily: "monospace" }}>
-                    {formatValue(forecastData.salinity["t+1"]?.surface.value)} PSU
-                  </strong>
-                  <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
-                    Uncertainty margin (1σ): ±{formatValue(forecastData.salinity["t+1"]?.surface.uncertainty_1sigma)} PSU
-                  </div>
-                  <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
-                    Assimilation Method: <strong>Autoregressive Trend Model</strong>
-                  </div>
-                </div>
+          {/* Verified Observational Baseline Grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "16px", marginTop: "16px" }}>
+            {/* Surface Temperature Baseline */}
+            <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
+              <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                VERIFIED BASELINE · SEA SURFACE TEMPERATURE (0.49 M)
+              </span>
+              <strong style={{ display: "block", fontSize: "28px", color: "#45b7ff", marginTop: "6px", fontFamily: "monospace" }}>
+                {obsTemp != null ? `${formatValue(obsTemp)}°C` : "Unobserved"}
+              </strong>
+              <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
+                Source: Copernicus GLORYS12V1 Daily Reanalysis
               </div>
+              <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
+                Observation Cycle: <strong>{obsDate}</strong>
+              </div>
+            </div>
 
-              {/* T+2 Outlook Horizon */}
-              {forecastData.temperature["t+2"] && (
-                <div style={{ marginTop: "20px", background: "#061822", padding: "18px", borderRadius: "8px", border: "1px solid #163845" }}>
-                  <SectionLabel>Extended 48-Hour Horizon (T+2 Outlook)</SectionLabel>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "10px" }}>
-                    <div>
-                      <span style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>Projected Surface Temperature (T+2)</span>
-                      <strong style={{ display: "block", fontSize: "20px", color: "var(--cyan)", marginTop: "3px", fontFamily: "monospace" }}>
-                        {formatValue(forecastData.temperature["t+2"]?.surface.value)}°C
-                      </strong>
-                      <small style={{ color: "#709094", fontSize: "10px" }}>
-                        ±{formatValue(forecastData.temperature["t+2"]?.surface.uncertainty_1sigma)}°C (1σ uncertainty)
-                      </small>
-                    </div>
-                    <div>
-                      <span style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>Projected Surface Salinity (T+2)</span>
-                      <strong style={{ display: "block", fontSize: "20px", color: "#ffd166", marginTop: "3px", fontFamily: "monospace" }}>
-                        {formatValue(forecastData.salinity["t+2"]?.surface.value)} PSU
-                      </strong>
-                      <small style={{ color: "#709094", fontSize: "10px" }}>
-                        ±{formatValue(forecastData.salinity["t+2"]?.surface.uncertainty_1sigma)} PSU (1σ uncertainty)
-                      </small>
-                    </div>
-                  </div>
-                </div>
-              )}
+            {/* Surface Salinity Baseline */}
+            <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
+              <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                VERIFIED BASELINE · SEA SURFACE SALINITY (0.49 M)
+              </span>
+              <strong style={{ display: "block", fontSize: "28px", color: "#ffd166", marginTop: "6px", fontFamily: "monospace" }}>
+                {obsSal != null ? `${formatValue(obsSal)} PSU` : "Unobserved"}
+              </strong>
+              <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
+                Source: Copernicus GLORYS Physical Reanalysis
+              </div>
+              <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
+                Observation Cycle: <strong>{obsDate}</strong>
+              </div>
             </div>
-          ) : (
-            <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--muted-foreground)" }}>
-              No forecast projection active for this location or date.
-            </div>
-          )}
 
-          {/* Scientific Methodology Information Box */}
-          <div style={{ marginTop: "20px", padding: "14px 18px", background: "#05151e", borderRadius: "6px", border: "1px solid #16333f" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#c084fc", fontSize: "12px", marginBottom: "6px", fontWeight: 700 }}>
-              <Sparkles size={14} color="#c084fc" />
-              <span>Projection Methodology &amp; Assimilation Calibration</span>
+            {/* 10m Marine Wind Baseline */}
+            <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
+              <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                VERIFIED BASELINE · 10M MARINE WIND SPEED
+              </span>
+              <strong style={{ display: "block", fontSize: "28px", color: "#22c55e", marginTop: "6px", fontFamily: "monospace" }}>
+                {obsWind != null ? `${formatValue(obsWind)} m/s` : "Unobserved"}
+              </strong>
+              <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
+                Source: HY-2C HSCAT Satellite Scatterometer
+              </div>
+              <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px", fontSize: "11px", color: "var(--muted-foreground)" }}>
+                Wind Direction: <strong>{forecastData?.latest_observation?.wind_to_dir ? `${forecastData.latest_observation.wind_to_dir.toFixed(0)}°` : "Calm / Variable"}</strong>
+              </div>
             </div>
-            <p style={{ margin: 0, fontSize: "11px", color: "#94a3b8", lineHeight: "1.6" }}>
-              Short-range predictions are synthesized via an autoregressive physical persistence model initialized from the latest authentic Copernicus ocean analysis (10 Sep 2026). The methodology projects short-term trajectory based on recent multi-day climatological momentum, calibrated against GLORYS physical dynamics with 1-sigma uncertainty margins.
+
+            {/* 500m Subsurface Stratum Status */}
+            <div style={{ background: "#081b24", padding: "18px", borderRadius: "8px", border: "1px solid #21404a" }}>
+              <span style={{ fontSize: "10px", color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                SUBSURFACE 500M STRATUM STATUS
+              </span>
+              <strong style={{ display: "block", fontSize: "18px", color: "#94a3b8", marginTop: "6px", fontWeight: 600 }}>
+                Unobserved in Forward Forecast
+              </strong>
+              <div style={{ fontSize: "11px", color: "#709094", marginTop: "6px" }}>
+                Multi-depth profiling requires in-situ Argo CTD float assimilation
+              </div>
+              <div style={{ borderTop: "1px solid #21404a", marginTop: "10px", paddingTop: "8px" }}>
+                <Link
+                  href="/subsurface"
+                  style={{
+                    color: "var(--cyan)",
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    textDecoration: "underline",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                  }}
+                >
+                  Inspect Vertical Profile in Subsurface Analysis →
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          {/* Model Architecture & Forward Extrapolation Pipeline */}
+          <div
+            style={{
+              marginTop: "24px",
+              padding: "20px",
+              background: "#05151e",
+              borderRadius: "8px",
+              border: "1px solid #16333f",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#c084fc", fontSize: "13px", marginBottom: "8px", fontWeight: 700 }}>
+              <Cpu size={16} color="#c084fc" />
+              <span>Forward Extrapolation Pipeline Specifications</span>
+            </div>
+            <p style={{ margin: "0 0 14px", fontSize: "12px", color: "#94a3b8", lineHeight: "1.6" }}>
+              The future operational forward forecasting architecture is designed to ingest real-time satellite surface boundary conditions and generate short-range (24h to 72h) thermal and haline state evolutions:
             </p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "12px" }}>
+              <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <strong style={{ color: "#38bdf8", fontSize: "11px", display: "block" }}>1. Surface Boundary Ingestion</strong>
+                <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", display: "block" }}>
+                  OSTIA 0.05° SST, HY-2C wind vector stress, and DUACS Sea Level Anomaly (SLA).
+                </span>
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <strong style={{ color: "#ffd166", fontSize: "11px", display: "block" }}>2. Neural Subsurface Inversion</strong>
+                <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", display: "block" }}>
+                  OceanProfileNet 1D-CNN + Transformer maps surface anomalies to 0–1000m vertical profiles.
+                </span>
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <strong style={{ color: "#c084fc", fontSize: "11px", display: "block" }}>3. Autoregressive Advection</strong>
+                <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", display: "block" }}>
+                  Baroclinic advection terms advance thermal strata with 95% Monte Carlo uncertainty bounds.
+                </span>
+              </div>
+              <div style={{ background: "rgba(255,255,255,0.03)", padding: "12px", borderRadius: "6px", border: "1px solid rgba(255,255,255,0.08)" }}>
+                <strong style={{ color: "#22c55e", fontSize: "11px", display: "block" }}>4. In-Situ Validation Cycle</strong>
+                <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", display: "block" }}>
+                  Predictions continuously benchmarked against Argo GDAC real-time profiling floats.
+                </span>
+              </div>
+            </div>
           </div>
         </section>
       )}

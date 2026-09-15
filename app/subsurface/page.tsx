@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useOceanData, locations, Location } from "@/lib/ocean-context";
-import { getHistoricalSeries, isOceanCoordinate } from "@/lib/ocean-service";
+import { getHistoricalSeries, isOceanCoordinate, findClosestStation, findNearestArgoProfile } from "@/lib/ocean-service";
 import { SectionLabel } from "@/components/metric-card";
+import { SubsurfaceScientificChart } from "@/components/subsurface-scientific-chart";
 import {
   Activity,
   ArrowLeft,
@@ -22,7 +24,7 @@ import {
   Zap,
 } from "lucide-react";
 
-export default function SubsurfacePage() {
+function SubsurfaceContent() {
   const {
     subsurfaceData,
     oceanData,
@@ -45,6 +47,111 @@ export default function SubsurfacePage() {
     switchMarineStation,
   } = useOceanData();
 
+  const searchParams = useSearchParams();
+
+  // Hydrate selected coordinates, date, variable, depth from URL query parameters (e.g. from Overview Map click)
+  useEffect(() => {
+    if (!searchParams) return;
+    const latParam = searchParams.get("lat");
+    const lonParam = searchParams.get("lon");
+    const dateParam = searchParams.get("date");
+    const metricParam = searchParams.get("metric");
+    const depthParam = searchParams.get("depth");
+
+    if (latParam && lonParam) {
+      const latNum = parseFloat(latParam);
+      const lonNum = parseFloat(lonParam);
+      if (!isNaN(latNum) && !isNaN(lonNum)) {
+        const isOceanCoord = isOceanCoordinate(latNum, lonNum);
+        if (isOceanCoord) {
+          const closest = findClosestStation(latNum, lonNum);
+          if (closest && closest.distanceDeg < 0.5) {
+            setSelected(closest.station);
+          } else {
+            setSelected({
+              id: `clicked-${latNum.toFixed(2)}-${lonNum.toFixed(2)}`,
+              name: `Marine Station (${latNum.toFixed(2)}°N, ${lonNum.toFixed(2)}°E)`,
+              region: closest ? closest.station.region : "Indian Ocean Basin",
+              x: 50,
+              y: 50,
+              code: `${latNum.toFixed(2)}°, ${lonNum.toFixed(2)}°`,
+              lat: latNum,
+              lon: lonNum,
+            });
+          }
+        }
+      }
+    }
+
+    if (dateParam) {
+      setSelectedDate(dateParam);
+    }
+    if (metricParam === "temperature" || metricParam === "salinity" || metricParam === "wind") {
+      setMetric(metricParam);
+    }
+    if (depthParam) {
+      const d = parseInt(depthParam, 10);
+      if (!isNaN(d)) setDepth(d);
+    }
+  }, [searchParams, setSelected, setSelectedDate, setMetric, setDepth]);
+
+  // Profiles for publication-grade scientific chart
+  const reanalysisProfile = useMemo(() => {
+    if (subsurfaceData?.ts_diagram?.length) {
+      return subsurfaceData.ts_diagram.map((pt) => ({
+        depth: pt.depth,
+        temperature: pt.temperature,
+        salinity: pt.salinity,
+      }));
+    }
+    const tProf = oceanData?.reference_profile || oceanData?.temperature_profile || [];
+    const sProf = oceanData?.salinity_profile || [];
+    return tProf.map((tp) => ({
+      depth: tp.depth,
+      temperature: tp.temperature,
+      salinity: sProf.find((sp) => sp.depth === tp.depth)?.salinity ?? null,
+    }));
+  }, [subsurfaceData, oceanData]);
+
+  const aiProfile = useMemo(() => {
+    const mProf = oceanData?.model_profile || [];
+    const sProf = oceanData?.salinity_profile || [];
+    return mProf.map((mp) => ({
+      depth: mp.depth,
+      temperature: mp.temperature,
+      salinity: sProf.find((sp) => sp.depth === mp.depth)?.salinity ?? null,
+    }));
+  }, [oceanData]);
+
+  // Authentic nearest Argo GDAC float in-situ profile for direct observational validation
+  const nearestArgo = useMemo(() => {
+    if (selected.lat == null || selected.lon == null) return null;
+    return findNearestArgoProfile(selected.lat, selected.lon, 4.0);
+  }, [selected.lat, selected.lon]);
+
+  const argoObservedPoints = useMemo(() => {
+    const pts: { depth: number; temperature?: number | null; salinity?: number | null }[] = [];
+    if (oceanData?.surface_temp != null || oceanData?.salinity != null) {
+      pts.push({
+        depth: 0,
+        temperature: oceanData.surface_temp ?? null,
+        salinity: oceanData.salinity ?? null,
+      });
+    }
+    if (nearestArgo?.profile?.profile && Array.isArray(nearestArgo.profile.profile)) {
+      nearestArgo.profile.profile.forEach((pt: any) => {
+        if (typeof pt.depth === "number" && pt.depth > 0) {
+          pts.push({
+            depth: pt.depth,
+            temperature: typeof pt.temperature === "number" ? pt.temperature : null,
+            salinity: typeof pt.salinity === "number" ? pt.salinity : null,
+          });
+        }
+      });
+    }
+    return pts;
+  }, [oceanData, nearestArgo]);
+
   // Interactive state
   const [hoveredDepth, setHoveredDepth] = useState<number | null>(null);
   const [hoveredBoundary, setHoveredBoundary] = useState<"thermocline" | "halocline" | "mld" | null>(null);
@@ -55,7 +162,7 @@ export default function SubsurfacePage() {
   const [isPhysicsExpanded, setIsPhysicsExpanded] = useState(false);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
 
-  // Graph view controls (CHANGE 1: Two separate graphs with selection & side-by-side)
+  // Graph view controls (Two separate graphs with selection & side-by-side)
   const [activeGraphView, setActiveGraphView] = useState<"both" | "temperature" | "salinity">("both");
   const [tempGraphMode, setTempGraphMode] = useState<"depth" | "timeseries">("depth");
   const [salGraphMode, setSalGraphMode] = useState<"depth" | "timeseries">("depth");
@@ -359,18 +466,17 @@ export default function SubsurfacePage() {
         </div>
       </div>
 
-      {/* CHANGE 2: Strict Land Validation Notice */}
-      {isLand ? (
+      {/* CHANGE 2: Strict Land Validation Notice */}      {isLand || !isOcean || isNoData ? (
         <div
-          id="land-location-notice"
-          className="panel"
+          id="land-point-warning"
           style={{
-            background: "rgba(6, 21, 28, 0.95)",
-            border: "1px solid rgba(238, 142, 122, 0.35)",
+            background: "#ffffff",
+            border: "1px solid #d1d5db",
             borderRadius: "10px",
-            padding: "44px 24px",
+            padding: "48px 28px",
             textAlign: "center",
             marginBottom: "24px",
+            boxShadow: "0 4px 20px rgba(0, 0, 0, 0.08)",
           }}
         >
           <div
@@ -378,39 +484,40 @@ export default function SubsurfacePage() {
               width: "56px",
               height: "56px",
               borderRadius: "50%",
-              background: "rgba(238, 142, 122, 0.15)",
-              color: "#ee8e7a",
+              background: "#fee2e2",
+              color: "#dc2626",
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
               marginBottom: "16px",
+              fontSize: "24px",
             }}
           >
-            <ShieldAlert size={28} />
+            ⚠️
           </div>
-          <h2 style={{ fontSize: "20px", fontWeight: 700, color: "#ee8e7a", margin: "0 0 10px" }}>
-            No ocean data available for this land location.
+          <h2 style={{ fontSize: "22px", fontWeight: 800, color: "#111827", margin: "0 0 10px", letterSpacing: "-0.02em" }}>
+            NO VALID PROFILE DATA
           </h2>
-          <p style={{ color: "var(--muted-foreground)", fontSize: "13px", maxWidth: "620px", margin: "0 auto 22px", lineHeight: "1.6" }}>
-            The selected coordinate ({selected.lat != null ? `${Math.abs(selected.lat).toFixed(3)}°${selected.lat >= 0 ? "N" : "S"}` : "—"}, {selected.lon != null ? `${Math.abs(selected.lon).toFixed(3)}°${selected.lon >= 0 ? "E" : "W"}` : "—"}) falls on continental landmass. Subsurface thermal-saline depth profiles, thermoclines, haloclines, and water-mass stratification are strictly calculated from oceanic water observations.
+          <p style={{ color: "#4b5563", fontSize: "14px", maxWidth: "620px", margin: "0 auto 24px", lineHeight: "1.6" }}>
+            Valid OceanEmbed reconstruction or reference data is not available for the selected location/date. Subsurface thermal-saline depth profiles, thermoclines, haloclines, and water-mass stratification are strictly calculated from oceanic water observations.
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: "12px", flexWrap: "wrap" }}>
             <button
               id="btn-switch-ocean-station"
               onClick={switchMarineStation}
-              className="primary-button"
               style={{
-                background: "var(--cyan)",
-                color: "#05131a",
+                background: "#0284c7",
+                color: "#ffffff",
                 border: "none",
-                padding: "10px 20px",
+                padding: "10px 22px",
                 borderRadius: "6px",
-                fontSize: "12px",
+                fontSize: "13px",
                 fontWeight: 700,
                 cursor: "pointer",
                 display: "inline-flex",
                 alignItems: "center",
                 gap: "8px",
+                boxShadow: "0 2px 8px rgba(2, 132, 199, 0.3)",
               }}
             >
               <Waves size={15} /> Switch to Active Marine Station
@@ -418,12 +525,12 @@ export default function SubsurfacePage() {
             <Link
               href="/map-2d"
               style={{
-                background: "rgba(255, 255, 255, 0.06)",
-                color: "#d8e7e5",
-                border: "1px solid #21404a",
-                padding: "10px 20px",
+                background: "#f3f4f6",
+                color: "#1f2937",
+                border: "1px solid #d1d5db",
+                padding: "10px 22px",
                 borderRadius: "6px",
-                fontSize: "12px",
+                fontSize: "13px",
                 fontWeight: 600,
                 textDecoration: "none",
                 display: "inline-flex",
@@ -437,6 +544,36 @@ export default function SubsurfacePage() {
         </div>
       ) : (
         <>
+          {/* PRIMARY SCIENTIFIC HERO CHART (PUBLICATION-GRADE WHITE BACKGROUND) */}
+          <SubsurfaceScientificChart
+            locationName={selected.name}
+            locationCode={selected.code}
+            lat={selected.lat ?? null}
+            lon={selected.lon ?? null}
+            date={selectedDate}
+            depth={depth}
+            onDepthChange={(d) => setDepth(d)}
+            observedSurfaceTemp={oceanData?.surface_temp}
+            observedSurfaceSal={oceanData?.salinity}
+            reanalysisProfile={reanalysisProfile}
+            aiProfile={aiProfile}
+            tempUncertainty={oceanData?.temp_uncertainty || []}
+            salUncertainty={oceanData?.sal_uncertainty || []}
+            argoObservedPoints={argoObservedPoints}
+            argoFloatInfo={
+              nearestArgo?.profile
+                ? {
+                    platform: nearestArgo.profile.platform,
+                    cycle: nearestArgo.profile.cycle,
+                    distanceKm: Math.round(nearestArgo.distanceDeg * 111),
+                  }
+                : null
+            }
+            sourceDescription={oceanData?.provenance?.source}
+            isNoData={isNoData || isLand}
+            onSwitchStation={switchMarineStation}
+          />
+
           {/* 4. Two Primary Result Cards + Stratification Summary */}
           <div className="subsurface-kpi-grid">
         {/* THERMOCLINE CARD */}
@@ -686,1051 +823,6 @@ export default function SubsurfacePage() {
             </span>
           </div>
         </div>
-      </div>
-
-      {/* 5. MAJOR CENTRAL VERTICAL OCEAN PROFILE VISUALIZATION */}
-      <section className="panel" id="section-vertical-profile" style={{ marginBottom: "20px", background: "rgba(9, 26, 35, 0.9)" }}>
-        <div className="panel-header" style={{ marginBottom: "14px" }}>
-          <div>
-            <SectionLabel>Vertical Stratification Architecture</SectionLabel>
-            <h2 style={{ fontSize: "17px", margin: "4px 0 0" }}>
-              Hydrographic Depth Profile: Surface Layer (0.49 m) · Subsurface Strata Unobserved
-            </h2>
-          </div>
-          <div style={{ display: "flex", gap: "12px", alignItems: "center", fontSize: "11px", flexWrap: "wrap" }}>
-            <span style={{ color: "#63d9d0", fontWeight: 600 }}>● Surface Layer: 0.49 m (Observed)</span>
-            <span style={{ color: "#709094" }}>○ Mixed Layer: Not in dataset</span>
-            <span style={{ color: "#709094" }}>○ Thermocline: Not in dataset</span>
-            <span style={{ color: "#709094" }}>○ Halocline: Not in dataset</span>
-            <span style={{ color: "#709094" }}>○ Deep Ocean: Unobserved</span>
-          </div>
-        </div>
-
-        {/* Vertical Ocean Water Column Graphic */}
-        <div
-          id="vertical-water-column"
-          style={{
-            position: "relative",
-            width: "100%",
-            height: "220px",
-            background: "linear-gradient(180deg, #164656 0%, #0d2f3d 25%, #0a232f 50%, #071922 80%, #030d12 100%)",
-            border: "1px solid #21404a",
-            borderRadius: "8px",
-            overflow: "hidden",
-            display: "flex",
-          }}
-          onMouseLeave={() => setHoveredDepth(null)}
-        >
-          {/* Depth Axis Column */}
-          <div
-            style={{
-              width: "80px",
-              borderRight: "1px solid rgba(33, 64, 74, 0.8)",
-              background: "rgba(4, 15, 22, 0.7)",
-              position: "relative",
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "space-between",
-              padding: "10px 8px",
-              fontFamily: "monospace",
-              fontSize: "10px",
-              color: "#709094",
-              userSelect: "none",
-            }}
-          >
-            <span style={{ color: "#63d9d0", fontWeight: "bold" }}>0.00 m</span>
-            <span style={{ color: "#63d9d0", fontWeight: "bold" }}>0.49 m</span>
-            <span style={{ color: "#475569" }}>100 m (—)</span>
-            <span style={{ color: "#475569" }}>500 m (—)</span>
-            <span style={{ color: "#475569" }}>1000 m (—)</span>
-          </div>
-
-          {/* Water Column Area */}
-          <div
-            style={{ flex: 1, position: "relative", cursor: "crosshair" }}
-            onMouseMove={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const yRatio = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-              const d = Math.round(yRatio * maxProfileDepth);
-              setHoveredDepth(d);
-            }}
-          >
-            {/* Surface Ambient Glow & Waves */}
-            <div
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                height: "24px",
-                background: "linear-gradient(180deg, rgba(99, 217, 208, 0.25) 0%, transparent 100%)",
-                borderBottom: "1px dashed rgba(99, 217, 208, 0.4)",
-                display: "flex",
-                alignItems: "center",
-                padding: "0 12px",
-                fontSize: "10px",
-                color: "#63d9d0",
-                fontWeight: 600,
-                letterSpacing: "0.05em",
-              }}
-            >
-              SURFACE (0 m) · Solar Heating &amp; Wind Mixing Zone
-            </div>
-
-            {/* Mixed Layer Depth Zone */}
-            {mixedLayerDepth != null && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  height: `${Math.min(100, Math.max(8, (mixedLayerDepth / maxProfileDepth) * 220))}px`,
-                  background: hoveredBoundary === "mld" ? "rgba(188, 233, 210, 0.15)" : "rgba(188, 233, 210, 0.06)",
-                  borderBottom: "1px dashed rgba(188, 233, 210, 0.6)",
-                  pointerEvents: "none",
-                  transition: "background 0.2s ease",
-                }}
-              >
-                <span style={{ position: "absolute", right: "12px", bottom: "4px", fontSize: "10px", color: "#bce9d2", fontFamily: "monospace" }}>
-                  MIXED LAYER DEPTH (MLD) ──── {mixedLayerDepth} m
-                </span>
-              </div>
-            )}
-
-            {/* HALOCLINE MARKER LINE */}
-            {haloclineDepth != null && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${Math.min(200, Math.max(15, (haloclineDepth / maxProfileDepth) * 220))}px`,
-                  left: 0,
-                  right: 0,
-                  height: hoveredBoundary === "halocline" ? "3px" : "2px",
-                  background: "#45b7ff",
-                  boxShadow: hoveredBoundary === "halocline" ? "0 0 14px #45b7ff" : "0 0 8px #45b7ff",
-                  pointerEvents: "none",
-                  zIndex: 2,
-                  transition: "all 0.2s ease",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "14px",
-                    top: "-18px",
-                    background: "rgba(8, 27, 36, 0.95)",
-                    border: "1px solid #45b7ff",
-                    borderRadius: "4px",
-                    padding: "2px 8px",
-                    fontSize: "10px",
-                    color: "#45b7ff",
-                    fontWeight: 700,
-                    fontFamily: "monospace",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <span>HALOCLINE ─────── {haloclineDepth} m</span>
-                  <span style={{ color: "#87a4a6", fontWeight: 400 }}>({maxSalGradient?.toFixed(1) ?? "—"} PSU/100m)</span>
-                </div>
-              </div>
-            )}
-
-            {/* THERMOCLINE MARKER LINE */}
-            {thermoclineDepth != null && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${Math.min(200, Math.max(15, (thermoclineDepth / maxProfileDepth) * 220))}px`,
-                  left: 0,
-                  right: 0,
-                  height: hoveredBoundary === "thermocline" ? "3px" : "2px",
-                  background: "#ffd166",
-                  boxShadow: hoveredBoundary === "thermocline" ? "0 0 14px #ffd166" : "0 0 8px #ffd166",
-                  pointerEvents: "none",
-                  zIndex: 3,
-                  transition: "all 0.2s ease",
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    right: "14px",
-                    top: "-18px",
-                    background: "rgba(8, 27, 36, 0.95)",
-                    border: "1px solid #ffd166",
-                    borderRadius: "4px",
-                    padding: "2px 8px",
-                    fontSize: "10px",
-                    color: "#ffd166",
-                    fontWeight: 700,
-                    fontFamily: "monospace",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <span>THERMOCLINE ───── {thermoclineDepth} m</span>
-                  <span style={{ color: "#87a4a6", fontWeight: 400 }}>({maxTempGradient?.toFixed(1) ?? "—"} °C/100m)</span>
-                </div>
-              </div>
-            )}
-
-            {/* Barrier Layer Indicator if Halocline < Thermocline */}
-            {haloclineDepth != null && thermoclineDepth != null && haloclineDepth < thermoclineDepth && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${(haloclineDepth / maxProfileDepth) * 220}px`,
-                  height: `${Math.max(10, ((thermoclineDepth - haloclineDepth) / maxProfileDepth) * 220)}px`,
-                  left: "20%",
-                  right: "20%",
-                  background: "rgba(99, 217, 208, 0.08)",
-                  borderLeft: "2px dotted var(--cyan)",
-                  borderRight: "2px dotted var(--cyan)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "10px",
-                  color: "var(--cyan)",
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  pointerEvents: "none",
-                }}
-              >
-                Barrier Layer Zone (Δz = {Math.round(thermoclineDepth - haloclineDepth)} m)
-              </div>
-            )}
-
-            {/* Deep Ocean Label at bottom */}
-            <div
-              style={{
-                position: "absolute",
-                bottom: "6px",
-                left: "14px",
-                fontSize: "10px",
-                color: "#709094",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                pointerEvents: "none",
-              }}
-            >
-              Deep Ocean (Abyssal Cold Water Mass) ── 1000 m
-            </div>
-
-            {/* Interactive Hover Indicator Line */}
-            {hoveredDepth != null && (
-              <div
-                style={{
-                  position: "absolute",
-                  top: `${(hoveredDepth / maxProfileDepth) * 220}px`,
-                  left: 0,
-                  right: 0,
-                  height: "1px",
-                  background: "#fff",
-                  boxShadow: "0 0 6px #fff",
-                  pointerEvents: "none",
-                  zIndex: 10,
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    left: "40%",
-                    transform: "translateX(-50%) translateY(-50%)",
-                    background: "#07151d",
-                    border: "1px solid #63d9d0",
-                    borderRadius: "4px",
-                    padding: "2px 8px",
-                    fontSize: "10px",
-                    color: "#fff",
-                    fontFamily: "monospace",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  Depth: {hoveredDepth} m {activeReadout?.temp != null ? `· T: ${activeReadout.temp}°C` : ""}{" "}
-                  {activeReadout?.sal != null ? `· S: ${activeReadout.sal} PSU` : ""}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* 6 & 7. TEMPERATURE & SALINITY PROFILE GRAPHS (CHANGE 1) */}
-      <div
-        id="subsurface-graph-selector"
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: "12px",
-          background: "rgba(8, 27, 36, 0.85)",
-          border: "1px solid #21404a",
-          borderRadius: "8px",
-          padding: "10px 16px",
-          marginBottom: "16px",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Layers size={16} color="var(--cyan)" />
-          <span style={{ fontSize: "12px", color: "#e6f0f0", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Subsurface Graph View:
-          </span>
-        </div>
-
-        <div className="segmented" style={{ margin: 0 }}>
-          <button
-            id="btn-view-both"
-            type="button"
-            className={activeGraphView === "both" ? "active" : ""}
-            onClick={() => setActiveGraphView("both")}
-            style={{ fontSize: "11px", padding: "6px 14px", cursor: "pointer" }}
-          >
-            📊 Both Graphs (Side-by-Side)
-          </button>
-          <button
-            id="btn-view-temperature"
-            type="button"
-            className={activeGraphView === "temperature" ? "active" : ""}
-            onClick={() => {
-              setActiveGraphView("temperature");
-              setMetric("temperature");
-            }}
-            style={{
-              fontSize: "11px",
-              padding: "6px 14px",
-              cursor: "pointer",
-              color: activeGraphView === "temperature" ? "#ffd166" : undefined,
-              fontWeight: activeGraphView === "temperature" ? 700 : 500,
-            }}
-          >
-            <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#ffd166", marginRight: "6px" }} />
-            🌡️ Global/Ocean Temperature
-          </button>
-          <button
-            id="btn-view-salinity"
-            type="button"
-            className={activeGraphView === "salinity" ? "active" : ""}
-            onClick={() => {
-              setActiveGraphView("salinity");
-              setMetric("salinity");
-            }}
-            style={{
-              fontSize: "11px",
-              padding: "6px 14px",
-              cursor: "pointer",
-              color: activeGraphView === "salinity" ? "#45b7ff" : undefined,
-              fontWeight: activeGraphView === "salinity" ? 700 : 500,
-            }}
-          >
-            <span style={{ display: "inline-block", width: "7px", height: "7px", borderRadius: "50%", background: "#45b7ff", marginRight: "6px" }} />
-            💧 Global/Ocean Salinity
-          </button>
-        </div>
-      </div>
-
-      <div className={activeGraphView === "both" ? "subsurface-dual-grid" : "subsurface-single-view"} style={{ marginBottom: "20px" }}>
-        {/* 6. GLOBAL / OCEAN TEMPERATURE GRAPH */}
-        {(activeGraphView === "both" || activeGraphView === "temperature") && (
-          <section className="panel" id="section-temperature-profile" style={{ background: "rgba(8, 27, 36, 0.9)" }}>
-            <div className="panel-header" style={{ marginBottom: "10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-              <div>
-                <SectionLabel>Thermal Vertical Structure</SectionLabel>
-                <h2 style={{ fontSize: "16px", margin: "3px 0 0", color: "#ffd166" }}>
-                  Global / Ocean Temperature Graph
-                </h2>
-                <span style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>
-                  {tempGraphMode === "depth" ? "Vertical thermal stratification (0 to 1000m depth)" : "Daily sea surface temperature observations (14-day timeline)"}
-                </span>
-              </div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                <div className="segmented" style={{ margin: 0 }}>
-                  <button
-                    type="button"
-                    className={tempGraphMode === "depth" ? "active" : ""}
-                    onClick={() => setTempGraphMode("depth")}
-                    style={{ fontSize: "10px", padding: "3px 8px", cursor: "pointer" }}
-                  >
-                    vs Depth
-                  </button>
-                  <button
-                    type="button"
-                    className={tempGraphMode === "timeseries" ? "active" : ""}
-                    onClick={() => setTempGraphMode("timeseries")}
-                    style={{ fontSize: "10px", padding: "3px 8px", cursor: "pointer" }}
-                  >
-                    vs Date
-                  </button>
-                </div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "10px", flexWrap: "wrap" }}>
-                  <span style={{ color: "#38bdf8" }}>● Observed (GLORYS)</span>
-                  {modelTempProfile.length > 0 && <span style={{ color: "#ffd166" }}>● AI Reconstructed</span>}
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Temperature Stats Bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "8px", marginBottom: "10px", background: "rgba(5, 18, 25, 0.7)", padding: "8px 12px", borderRadius: "6px", border: "1px solid #142e38" }}>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Surface Temp (0.49m)</span>
-                <strong style={{ fontSize: "14px", color: "#ffd166", fontFamily: "monospace" }}>
-                  {oceanData?.surface_temp != null ? `${formatValue(oceanData.surface_temp, 2)} °C` : "—"}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Temp at {depth}m</span>
-                <strong style={{ fontSize: "14px", color: "#63d9d0", fontFamily: "monospace" }}>
-                  {currentTemp != null ? `${formatValue(currentTemp, 2)} °C` : "—"}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Thermocline Depth</span>
-                <strong style={{ fontSize: "14px", color: "#ffd166", fontFamily: "monospace" }}>
-                  {thermoclineDepth != null ? `${thermoclineDepth} m` : "—"}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Thermal Gradient</span>
-                <strong style={{ fontSize: "14px", color: "#d8e7e5", fontFamily: "monospace" }}>
-                  {maxTempGradient != null ? `${maxTempGradient.toFixed(1)} °C/100m` : "—"}
-                </strong>
-              </div>
-            </div>
-
-            {/* Dynamic Temperature Hover Inspector */}
-            {hoveredTempPoint && (
-              <div
-                id="temp-point-inspector"
-                style={{
-                  background: "rgba(6, 21, 28, 0.95)",
-                  border: "1px solid #38bdf8",
-                  borderRadius: "5px",
-                  padding: "6px 10px",
-                  fontSize: "11px",
-                  fontFamily: "monospace",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: "8px",
-                  marginBottom: "6px",
-                }}
-              >
-                <span style={{ color: "#ffd166", fontWeight: 700 }}>
-                  Depth: {hoveredTempPoint.depth} m · Temp: {hoveredTempPoint.temperature} °C
-                </span>
-                <span style={{ color: "#87a4a6" }}>
-                  {selected.lat != null ? `${Math.abs(selected.lat).toFixed(2)}°${selected.lat >= 0 ? "N" : "S"}` : "—"}, {selected.lon != null ? `${Math.abs(selected.lon).toFixed(2)}°${selected.lon >= 0 ? "E" : "W"}` : "—"} · {selectedDateFormatted || selectedDate}
-                </span>
-                <span style={{ color: "#22c55e", fontSize: "10px" }}>
-                  {oceanData?.provenance?.source || "Copernicus GLORYS12V1"}
-                </span>
-              </div>
-            )}
-
-            {tempGraphMode === "depth" ? (
-              <>
-                <div style={{ height: "270px", position: "relative", marginTop: "8px", userSelect: "none" }}>
-                  <svg viewBox="0 0 340 230" style={{ width: "100%", height: "100%" }}>
-                    {/* Y-Axis Label (Rotated Depth) */}
-                    <text
-                      transform="rotate(-90)"
-                      x="-105"
-                      y="13"
-                      fill="#63d9d0"
-                      fontSize="9"
-                      fontWeight="bold"
-                      fontFamily="monospace"
-                      textAnchor="middle"
-                      letterSpacing="0.05em"
-                    >
-                      DEPTH (m)
-                    </text>
-
-                    {/* Depth horizontal grid lines (0 to 1000m) */}
-                    {[0, 200, 400, 600, 800, 1000].map((d) => {
-                      const y = 20 + (d / 1000) * 175;
-                      return (
-                        <g key={d}>
-                          <line x1="48" x2="330" y1={y} y2={y} stroke="#1b3944" strokeDasharray="2 3" />
-                          <text x="20" y={y + 3} fill="#709094" fontSize="8.5" fontFamily="monospace">
-                            {d}m
-                          </text>
-                        </g>
-                      );
-                    })}
-
-                    {/* Temperature vertical grid lines (5°C to 30°C) */}
-                    {[5, 10, 15, 20, 25, 30].map((t) => {
-                      const x = 48 + ((t - 5) / 25) * 280;
-                      return (
-                        <g key={t}>
-                          <line x1={x} x2={x} y1="20" y2="195" stroke="#15313b" strokeDasharray="1 4" />
-                          <text x={x - 6} y={208} fill="#709094" fontSize="8.5" fontFamily="monospace">
-                            {t}°C
-                          </text>
-                        </g>
-                      );
-                    })}
-
-                    {/* X-Axis Label */}
-                    <text
-                      x="189"
-                      y="224"
-                      fill="#ffd166"
-                      fontSize="9"
-                      fontWeight="bold"
-                      fontFamily="monospace"
-                      textAnchor="middle"
-                      letterSpacing="0.05em"
-                    >
-                      WATER TEMPERATURE (°C)
-                    </text>
-
-                    {/* THERMOCLINE HORIZONTAL MARKER */}
-                    {thermoclineDepth != null && (
-                      <g>
-                        {(() => {
-                          const yTherm = 20 + (Math.min(1000, thermoclineDepth) / 1000) * 175;
-                          return (
-                            <>
-                              <line x1="48" x2="330" y1={yTherm} y2={yTherm} stroke="#ffd166" strokeWidth={hoveredBoundary === "thermocline" ? "2.5" : "1.5"} strokeDasharray="4 2" />
-                              <rect x="52" y={yTherm - 8} width="125" height="14" fill="#0b222b" rx="3" stroke="#ffd166" strokeWidth="0.75" />
-                              <text x="56" y={yTherm + 2} fill="#ffd166" fontSize="8" fontWeight="bold" fontFamily="monospace">
-                                THERMOCLINE: {thermoclineDepth}m
-                              </text>
-                            </>
-                          );
-                        })()}
-                      </g>
-                    )}
-
-                    {/* SELECTED DEPTH SLICE MARKER */}
-                    <g>
-                      {(() => {
-                        const yDepth = 20 + (Math.min(1000, depth) / 1000) * 175;
-                        return (
-                          <>
-                            <line x1="48" x2="330" y1={yDepth} y2={yDepth} stroke="#63d9d0" strokeWidth="1.5" strokeDasharray="3 3" />
-                            <rect x="235" y={yDepth - 8} width="90" height="14" fill="#08232e" rx="3" stroke="#63d9d0" strokeWidth="0.75" />
-                            <text x="280" y={yDepth + 2} fill="#63d9d0" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                              {depth}m Depth Slice
-                            </text>
-                          </>
-                        );
-                      })()}
-                    </g>
-
-                    {/* Uncertainty 95% Confidence Band */}
-                    {tempUncertainty.length > 1 && (
-                      <polygon
-                        points={[
-                          ...tempUncertainty.map((u) => {
-                            const x = 48 + Math.max(0, Math.min(280, ((u.upper - 5) / 25) * 280));
-                            const y = 20 + (Math.min(1000, u.depth) / 1000) * 175;
-                            return `${x},${y}`;
-                          }),
-                          ...tempUncertainty
-                            .slice()
-                            .reverse()
-                            .map((u) => {
-                              const x = 48 + Math.max(0, Math.min(280, ((u.lower - 5) / 25) * 280));
-                              const y = 20 + (Math.min(1000, u.depth) / 1000) * 175;
-                              return `${x},${y}`;
-                            }),
-                        ].join(" ")}
-                        fill="rgba(255, 209, 102, 0.12)"
-                      />
-                    )}
-
-                    {/* Observed / Reanalysis Temperature Curve */}
-                    {tempProfile.length > 1 && (
-                      <polyline
-                        fill="none"
-                        stroke="#38bdf8"
-                        strokeWidth="2.2"
-                        points={tempProfile
-                          .map((p) => {
-                            const x = 48 + Math.max(0, Math.min(280, ((p.temperature - 5) / 25) * 280));
-                            const y = 20 + (Math.min(1000, p.depth) / 1000) * 175;
-                            return `${x},${y}`;
-                          })
-                          .join(" ")}
-                      />
-                    )}
-
-                    {/* AI Reconstructed Curve */}
-                    {modelTempProfile.length > 1 && (
-                      <polyline
-                        fill="none"
-                        stroke="#ffd166"
-                        strokeWidth="1.75"
-                        strokeDasharray="4 2"
-                        points={modelTempProfile
-                          .map((p) => {
-                            const x = 48 + Math.max(0, Math.min(280, ((p.temperature - 5) / 25) * 280));
-                            const y = 20 + (Math.min(1000, p.depth) / 1000) * 175;
-                            return `${x},${y}`;
-                          })
-                          .join(" ")}
-                      />
-                    )}
-
-                    {/* Data points */}
-                    {tempProfile.map((p, idx) => {
-                      const x = 48 + Math.max(0, Math.min(280, ((p.temperature - 5) / 25) * 280));
-                      const y = 20 + (Math.min(1000, p.depth) / 1000) * 175;
-                      const isHovered = hoveredTempPoint?.depth === p.depth;
-                      const isSelectedDepth = Math.abs(p.depth - depth) <= 25;
-                      return (
-                        <circle
-                          key={idx}
-                          cx={x}
-                          cy={y}
-                          r={isHovered ? 6 : isSelectedDepth ? 4.5 : 3}
-                          fill={isHovered ? "#ffd166" : isSelectedDepth ? "#63d9d0" : "#38bdf8"}
-                          stroke={isHovered || isSelectedDepth ? "#fff" : "none"}
-                          strokeWidth="1.5"
-                          style={{ cursor: "pointer", transition: "r 0.15s ease" }}
-                          onMouseEnter={() => {
-                            setHoveredDepth(p.depth);
-                            setHoveredTempPoint(p);
-                          }}
-                          onMouseLeave={() => setHoveredTempPoint(null)}
-                          onClick={() => setDepth(p.depth)}
-                        >
-                          <title>{`Depth: ${p.depth}m | Temp: ${p.temperature}°C | ${selected.name} (${selectedDate})`}</title>
-                        </circle>
-                      );
-                    })}
-                  </svg>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#709094", padding: "0 10px", marginTop: "4px" }}>
-                  <span>Surface Warm Layer (0m)</span>
-                  <span style={{ color: "#ffd166", fontWeight: 600 }}>Water Temperature (°C)</span>
-                  <span>Deep Cold Abyssal (1000m)</span>
-                </div>
-              </>
-            ) : (
-              /* Time Series Mode (vs Date) */
-              <div style={{ height: "270px", position: "relative", marginTop: "8px", userSelect: "none" }}>
-                {histSeries && histSeries.dates.length > 0 ? (
-                  <>
-                    <svg viewBox="0 0 340 230" style={{ width: "100%", height: "100%" }}>
-                      {/* Y-Axis Label */}
-                      <text transform="rotate(-90)" x="-105" y="13" fill="#ffd166" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                        SURFACE TEMP (°C)
-                      </text>
-                      {/* Ticks 24 to 32 */}
-                      {[24, 26, 28, 30, 32].map((t) => {
-                        const y = 20 + ((32 - t) / 8) * 175;
-                        return (
-                          <g key={t}>
-                            <line x1="48" x2="330" y1={y} y2={y} stroke="#1b3944" strokeDasharray="2 3" />
-                            <text x="20" y={y + 3} fill="#709094" fontSize="8.5" fontFamily="monospace">{t}°C</text>
-                          </g>
-                        );
-                      })}
-                      {/* Dates line */}
-                      <polyline
-                        fill="none"
-                        stroke="#ffd166"
-                        strokeWidth="2.2"
-                        points={histSeries.dates.map((d, idx) => {
-                          const count = histSeries.dates.length;
-                          const x = 48 + (idx / Math.max(1, count - 1)) * 280;
-                          const temp = histSeries.surface_temp[idx] ?? 28;
-                          const y = 20 + Math.max(0, Math.min(175, ((32 - temp) / 8) * 175));
-                          return `${x},${y}`;
-                        }).join(" ")}
-                      />
-                      {/* Points */}
-                      {histSeries.dates.map((d, idx) => {
-                        const count = histSeries.dates.length;
-                        const x = 48 + (idx / Math.max(1, count - 1)) * 280;
-                        const temp = histSeries.surface_temp[idx] ?? 28;
-                        const y = 20 + Math.max(0, Math.min(175, ((32 - temp) / 8) * 175));
-                        const isSelectedDate = d === selectedDate;
-                        return (
-                          <circle
-                            key={idx}
-                            cx={x}
-                            cy={y}
-                            r={isSelectedDate ? 6 : 3.5}
-                            fill={isSelectedDate ? "#63d9d0" : "#ffd166"}
-                            stroke={isSelectedDate ? "#fff" : "none"}
-                            strokeWidth="1.5"
-                            style={{ cursor: "pointer" }}
-                            onClick={() => setSelectedDate(d)}
-                          >
-                            <title>{`${d}: ${temp}°C (Click to select date)`}</title>
-                          </circle>
-                        );
-                      })}
-                      {/* X-Axis Ticks */}
-                      {histSeries.dates.map((d, idx) => {
-                        if (idx % 3 !== 0 && idx !== histSeries.dates.length - 1) return null;
-                        const count = histSeries.dates.length;
-                        const x = 48 + (idx / Math.max(1, count - 1)) * 280;
-                        return (
-                          <text key={d} x={x} y="210" fill="#709094" fontSize="8" fontFamily="monospace" textAnchor="middle">
-                            {d.slice(5)}
-                          </text>
-                        );
-                      })}
-                      {/* X-Axis Title */}
-                      <text x="189" y="224" fill="#63d9d0" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                        OBSERVATION DATE (14 DAYS)
-                      </text>
-                    </svg>
-                    <div style={{ textAlign: "center", fontSize: "10px", color: "#87a4a6", marginTop: "4px" }}>
-                      Click any point to change the active observation date · Copernicus GLORYS Assimilated SST
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display: "grid", placeItems: "center", height: "100%", color: "#94a3b8", fontSize: "12px" }}>
-                    No time series observations available for this station.
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* 7. GLOBAL / OCEAN SALINITY GRAPH */}
-        {(activeGraphView === "both" || activeGraphView === "salinity") && (
-          <section className="panel" id="section-salinity-profile" style={{ background: "rgba(8, 27, 36, 0.9)" }}>
-            <div className="panel-header" style={{ marginBottom: "10px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "10px" }}>
-              <div>
-                <SectionLabel>Saline Vertical Structure</SectionLabel>
-                <h2 style={{ fontSize: "16px", margin: "3px 0 0", color: "#45b7ff" }}>
-                  Global / Ocean Salinity Graph
-                </h2>
-                <span style={{ fontSize: "11px", color: "var(--muted-foreground)" }}>
-                  {salGraphMode === "depth" ? "Vertical salinity stratification (0 to 1000m depth)" : "Daily sea surface salinity observations (14-day timeline)"}
-                </span>
-              </div>
-              <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                <div className="segmented" style={{ margin: 0 }}>
-                  <button
-                    type="button"
-                    className={salGraphMode === "depth" ? "active" : ""}
-                    onClick={() => setSalGraphMode("depth")}
-                    style={{ fontSize: "10px", padding: "3px 8px", cursor: "pointer" }}
-                  >
-                    vs Depth
-                  </button>
-                  <button
-                    type="button"
-                    className={salGraphMode === "timeseries" ? "active" : ""}
-                    onClick={() => setSalGraphMode("timeseries")}
-                    style={{ fontSize: "10px", padding: "3px 8px", cursor: "pointer" }}
-                  >
-                    vs Date
-                  </button>
-                </div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center", fontSize: "10px" }}>
-                  <span style={{ color: "#45b7ff" }}>● Verified Salinity (GLORYS/CTD)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Salinity Stats Bar */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "8px", marginBottom: "10px", background: "rgba(5, 18, 25, 0.7)", padding: "8px 12px", borderRadius: "6px", border: "1px solid #142e38" }}>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Surface Salinity (0.49m)</span>
-                <strong style={{ fontSize: "14px", color: "#45b7ff", fontFamily: "monospace" }}>
-                  {oceanData?.salinity != null ? `${formatValue(oceanData.salinity, 2)} PSU` : "—"}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Salinity at {depth}m</span>
-                <strong style={{ fontSize: "14px", color: "#63d9d0", fontFamily: "monospace" }}>
-                  {currentSal != null ? `${formatValue(currentSal, 2)} PSU` : "—"}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Halocline Depth</span>
-                <strong style={{ fontSize: "14px", color: "#45b7ff", fontFamily: "monospace" }}>
-                  {haloclineDepth != null ? `${haloclineDepth} m` : "—"}
-                </strong>
-              </div>
-              <div>
-                <span style={{ fontSize: "9px", color: "var(--muted-foreground)", textTransform: "uppercase", display: "block" }}>Salinity Gradient</span>
-                <strong style={{ fontSize: "14px", color: "#d8e7e5", fontFamily: "monospace" }}>
-                  {maxSalGradient != null ? `${maxSalGradient.toFixed(1)} PSU/100m` : "—"}
-                </strong>
-              </div>
-            </div>
-
-            {/* Dynamic Salinity Hover Inspector */}
-            {hoveredSalPoint && (
-              <div
-                id="sal-point-inspector"
-                style={{
-                  background: "rgba(6, 21, 28, 0.95)",
-                  border: "1px solid #45b7ff",
-                  borderRadius: "5px",
-                  padding: "6px 10px",
-                  fontSize: "11px",
-                  fontFamily: "monospace",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: "8px",
-                  marginBottom: "6px",
-                }}
-              >
-                <span style={{ color: "#45b7ff", fontWeight: 700 }}>
-                  Depth: {hoveredSalPoint.depth} m · Salinity: {hoveredSalPoint.salinity} PSU
-                </span>
-                <span style={{ color: "#87a4a6" }}>
-                  {selected.lat != null ? `${Math.abs(selected.lat).toFixed(2)}°${selected.lat >= 0 ? "N" : "S"}` : "—"}, {selected.lon != null ? `${Math.abs(selected.lon).toFixed(2)}°${selected.lon >= 0 ? "E" : "W"}` : "—"} · {selectedDateFormatted || selectedDate}
-                </span>
-                <span style={{ color: "#22c55e", fontSize: "10px" }}>
-                  {subsurfaceData?.provenance?.source || "Copernicus GLORYS12V1 / CTD"}
-                </span>
-              </div>
-            )}
-
-            {salGraphMode === "depth" ? (
-              <>
-                <div style={{ height: "270px", position: "relative", marginTop: "8px", userSelect: "none" }}>
-                  <svg viewBox="0 0 340 230" style={{ width: "100%", height: "100%" }}>
-                    {/* Y-Axis Label (Rotated Depth) */}
-                    <text
-                      transform="rotate(-90)"
-                      x="-105"
-                      y="13"
-                      fill="#63d9d0"
-                      fontSize="9"
-                      fontWeight="bold"
-                      fontFamily="monospace"
-                      textAnchor="middle"
-                      letterSpacing="0.05em"
-                    >
-                      DEPTH (m)
-                    </text>
-
-                    {/* Depth horizontal grid lines (0 to 1000m) */}
-                    {[0, 200, 400, 600, 800, 1000].map((d) => {
-                      const y = 20 + (d / 1000) * 175;
-                      return (
-                        <g key={d}>
-                          <line x1="48" x2="330" y1={y} y2={y} stroke="#1b3944" strokeDasharray="2 3" />
-                          <text x="20" y={y + 3} fill="#709094" fontSize="8.5" fontFamily="monospace">
-                            {d}m
-                          </text>
-                        </g>
-                      );
-                    })}
-
-                    {/* Salinity vertical grid lines (33.0 to 37.0 PSU) */}
-                    {[33.0, 34.0, 35.0, 36.0, 37.0].map((s) => {
-                      const x = 48 + ((s - 33.0) / 4.0) * 280;
-                      return (
-                        <g key={s}>
-                          <line x1={x} x2={x} y1="20" y2="195" stroke="#15313b" strokeDasharray="1 4" />
-                          <text x={x - 10} y={208} fill="#709094" fontSize="8.5" fontFamily="monospace">
-                            {s.toFixed(1)}
-                          </text>
-                        </g>
-                      );
-                    })}
-
-                    {/* X-Axis Label */}
-                    <text
-                      x="189"
-                      y="224"
-                      fill="#45b7ff"
-                      fontSize="9"
-                      fontWeight="bold"
-                      fontFamily="monospace"
-                      textAnchor="middle"
-                      letterSpacing="0.05em"
-                    >
-                      PRACTICAL SALINITY (PSU)
-                    </text>
-
-                    {/* HALOCLINE HORIZONTAL MARKER */}
-                    {haloclineDepth != null && (
-                      <g>
-                        {(() => {
-                          const yHalo = 20 + (Math.min(1000, haloclineDepth) / 1000) * 175;
-                          return (
-                            <>
-                              <line x1="48" x2="330" y1={yHalo} y2={yHalo} stroke="#45b7ff" strokeWidth={hoveredBoundary === "halocline" ? "2.5" : "1.5"} strokeDasharray="4 2" />
-                              <rect x="52" y={yHalo - 8} width="115" height="14" fill="#0b222b" rx="3" stroke="#45b7ff" strokeWidth="0.75" />
-                              <text x="56" y={yHalo + 2} fill="#45b7ff" fontSize="8" fontWeight="bold" fontFamily="monospace">
-                                HALOCLINE: {haloclineDepth}m
-                              </text>
-                            </>
-                          );
-                        })()}
-                      </g>
-                    )}
-
-                    {/* SELECTED DEPTH SLICE MARKER */}
-                    <g>
-                      {(() => {
-                        const yDepth = 20 + (Math.min(1000, depth) / 1000) * 175;
-                        return (
-                          <>
-                            <line x1="48" x2="330" y1={yDepth} y2={yDepth} stroke="#63d9d0" strokeWidth="1.5" strokeDasharray="3 3" />
-                            <rect x="235" y={yDepth - 8} width="90" height="14" fill="#08232e" rx="3" stroke="#63d9d0" strokeWidth="0.75" />
-                            <text x="280" y={yDepth + 2} fill="#63d9d0" fontSize="8" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                              {depth}m Depth Slice
-                            </text>
-                          </>
-                        );
-                      })()}
-                    </g>
-
-                    {/* Salinity Profile Curve */}
-                    {salProfile.length > 1 && (
-                      <polyline
-                        fill="none"
-                        stroke="#45b7ff"
-                        strokeWidth="2.2"
-                        points={salProfile
-                          .filter((p) => p.salinity != null)
-                          .map((p) => {
-                            const salVal = p.salinity!;
-                            const x = 48 + Math.max(0, Math.min(280, ((salVal - 33.0) / 4.0) * 280));
-                            const y = 20 + (Math.min(1000, p.depth) / 1000) * 175;
-                            return `${x},${y}`;
-                          })
-                          .join(" ")}
-                      />
-                    )}
-
-                    {/* Data points */}
-                    {salProfile
-                      .filter((p) => p.salinity != null)
-                      .map((p, idx) => {
-                        const x = 48 + Math.max(0, Math.min(280, ((p.salinity! - 33.0) / 4.0) * 280));
-                        const y = 20 + (Math.min(1000, p.depth) / 1000) * 175;
-                        const isHovered = hoveredSalPoint?.depth === p.depth;
-                        const isSelectedDepth = Math.abs(p.depth - depth) <= 25;
-                        return (
-                          <circle
-                            key={idx}
-                            cx={x}
-                            cy={y}
-                            r={isHovered ? 6 : isSelectedDepth ? 4.5 : 3}
-                            fill={isHovered ? "#ffd166" : isSelectedDepth ? "#63d9d0" : "#45b7ff"}
-                            stroke={isHovered || isSelectedDepth ? "#fff" : "none"}
-                            strokeWidth="1.5"
-                            style={{ cursor: "pointer", transition: "r 0.15s ease" }}
-                            onMouseEnter={() => {
-                              setHoveredDepth(p.depth);
-                              setHoveredSalPoint(p);
-                            }}
-                            onMouseLeave={() => setHoveredSalPoint(null)}
-                            onClick={() => setDepth(p.depth)}
-                          >
-                            <title>{`Depth: ${p.depth}m | Salinity: ${p.salinity} PSU | ${selected.name} (${selectedDate})`}</title>
-                          </circle>
-                        );
-                      })}
-                  </svg>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px", color: "#709094", padding: "0 10px", marginTop: "4px" }}>
-                  <span>Low Salinity Inflow (33.0 PSU)</span>
-                  <span style={{ color: "#45b7ff", fontWeight: 600 }}>Practical Salinity (PSU)</span>
-                  <span>High Salinity Core (37.0 PSU)</span>
-                </div>
-              </>
-            ) : (
-              /* Time Series Mode (vs Date) */
-              <div style={{ height: "270px", position: "relative", marginTop: "8px", userSelect: "none" }}>
-                {histSeries && histSeries.dates.length > 0 ? (
-                  <>
-                    <svg viewBox="0 0 340 230" style={{ width: "100%", height: "100%" }}>
-                      {/* Y-Axis Label */}
-                      <text transform="rotate(-90)" x="-105" y="13" fill="#45b7ff" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                        SURFACE SALINITY (PSU)
-                      </text>
-                      {/* Ticks 33.0 to 37.0 */}
-                      {[33.0, 34.0, 35.0, 36.0, 37.0].map((s) => {
-                        const y = 20 + ((37.0 - s) / 4.0) * 175;
-                        return (
-                          <g key={s}>
-                            <line x1="48" x2="330" y1={y} y2={y} stroke="#1b3944" strokeDasharray="2 3" />
-                            <text x="18" y={y + 3} fill="#709094" fontSize="8" fontFamily="monospace">{s.toFixed(1)}</text>
-                          </g>
-                        );
-                      })}
-                      {/* Dates line */}
-                      <polyline
-                        fill="none"
-                        stroke="#45b7ff"
-                        strokeWidth="2.2"
-                        points={histSeries.dates.map((d, idx) => {
-                          const count = histSeries.dates.length;
-                          const x = 48 + (idx / Math.max(1, count - 1)) * 280;
-                          const sal = histSeries.surface_sal[idx] ?? 35.0;
-                          const y = 20 + Math.max(0, Math.min(175, ((37.0 - sal) / 4.0) * 175));
-                          return `${x},${y}`;
-                        }).join(" ")}
-                      />
-                      {/* Points */}
-                      {histSeries.dates.map((d, idx) => {
-                        const count = histSeries.dates.length;
-                        const x = 48 + (idx / Math.max(1, count - 1)) * 280;
-                        const sal = histSeries.surface_sal[idx] ?? 35.0;
-                        const y = 20 + Math.max(0, Math.min(175, ((37.0 - sal) / 4.0) * 175));
-                        const isSelectedDate = d === selectedDate;
-                        return (
-                          <circle
-                            key={idx}
-                            cx={x}
-                            cy={y}
-                            r={isSelectedDate ? 6 : 3.5}
-                            fill={isSelectedDate ? "#63d9d0" : "#45b7ff"}
-                            stroke={isSelectedDate ? "#fff" : "none"}
-                            strokeWidth="1.5"
-                            style={{ cursor: "pointer" }}
-                            onClick={() => setSelectedDate(d)}
-                          >
-                            <title>{`${d}: ${sal} PSU (Click to select date)`}</title>
-                          </circle>
-                        );
-                      })}
-                      {/* X-Axis Ticks */}
-                      {histSeries.dates.map((d, idx) => {
-                        if (idx % 3 !== 0 && idx !== histSeries.dates.length - 1) return null;
-                        const count = histSeries.dates.length;
-                        const x = 48 + (idx / Math.max(1, count - 1)) * 280;
-                        return (
-                          <text key={d} x={x} y="210" fill="#709094" fontSize="8" fontFamily="monospace" textAnchor="middle">
-                            {d.slice(5)}
-                          </text>
-                        );
-                      })}
-                      {/* X-Axis Title */}
-                      <text x="189" y="224" fill="#63d9d0" fontSize="9" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                        OBSERVATION DATE (14 DAYS)
-                      </text>
-                    </svg>
-                    <div style={{ textAlign: "center", fontSize: "10px", color: "#87a4a6", marginTop: "4px" }}>
-                      Click any point to change the active observation date · Copernicus GLORYS Multi-Year Reanalysis
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ display: "grid", placeItems: "center", height: "100%", color: "#94a3b8", fontSize: "12px" }}>
-                    No time series observations available for this station.
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        )}
       </div>
 
       {/* 9 & 10. T-S WATER MASS DIAGRAM & ISOPYCNALS */}
@@ -2257,3 +1349,18 @@ export default function SubsurfacePage() {
     </div>
   );
 }
+
+export default function SubsurfacePage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ padding: "60px", textAlign: "center", color: "var(--cyan)", fontFamily: "monospace", fontSize: "13px" }}>
+          Loading Subsurface Profile &amp; Hydrographic Reanalysis...
+        </div>
+      }
+    >
+      <SubsurfaceContent />
+    </Suspense>
+  );
+}
+
